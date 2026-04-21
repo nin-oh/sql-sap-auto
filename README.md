@@ -41,6 +41,23 @@ ORDER BY s.Dte
 Variables: `SlpCode` (number), `Entrepot` (text, `*` = all), `StartDate` /
 `EndDate` (date). Users just fill the form — no SQL required.
 
+## Excel export
+
+Click **Excel** in the top bar. You get a dialog where you pick which tables to
+include:
+
+- the **current live result** (if a query has run)
+- any **snapshots** already saved
+
+Each selected item becomes its own sheet. A first **Accueil** sheet is added
+with a gradient banner, a clickable table-of-contents, and a Parameters block
+showing every variable used (yellow-filled cells clearly styled as input
+fields, with a note on how to change them in the app).
+
+Data sheets are styled: violet header row, frozen first line, auto-filter,
+banded rows, per-type number/date formats (`#,##0.00`, `yyyy-mm-dd hh:mm`…),
+auto-fit column widths, and a small source-query note under the data.
+
 ## Sharing results with colleagues who don't have SQL access
 
 Not everyone on the team has VPN + SQL credentials, but they still need to see

@@ -27,6 +27,7 @@ const api = {
 
   exportCsv: (rows: unknown, columns: unknown) =>
     ipcRenderer.invoke("export:csv", { rows, columns }),
+  exportExcel: (args: unknown) => ipcRenderer.invoke("export:excel", args),
 };
 
 contextBridge.exposeInMainWorld("sap", api);

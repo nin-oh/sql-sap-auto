@@ -12,6 +12,7 @@ import {
   Camera,
   Upload,
   Download,
+  FileSpreadsheet,
   X,
 } from "lucide-react";
 import { Button } from "./components/ui/Button";
@@ -27,6 +28,7 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { TemplatesPanel } from "./components/TemplatesPanel";
 import { SnapshotsPanel } from "./components/SnapshotsPanel";
 import { ConnectionDialog } from "./components/ConnectionDialog";
+import { ExcelExportDialog } from "./components/ExcelExportDialog";
 import { Aurora } from "./components/Aurora";
 import { KpiStrip } from "./components/KpiStrip";
 import { EmptyState } from "./components/EmptyState";
@@ -59,6 +61,7 @@ export default function App() {
   const [snapOpen, setSnapOpen] = useState(false);
   const [snapName, setSnapName] = useState("");
   const [snapDesc, setSnapDesc] = useState("");
+  const [excelOpen, setExcelOpen] = useState(false);
 
   useEffect(() => {
     void initialize();
@@ -86,6 +89,7 @@ export default function App() {
         hasConnection={hasConnection}
         onExport={() => void exportWorkspace()}
         onImport={() => void importWorkspace()}
+        onOpenExcel={() => setExcelOpen(true)}
       />
 
       <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr] gap-0 relative z-10">
@@ -276,6 +280,11 @@ export default function App() {
         onSaved={() => setHasConnection(true)}
       />
 
+      <ExcelExportDialog
+        open={excelOpen}
+        onClose={() => setExcelOpen(false)}
+      />
+
       <Modal
         open={snapOpen}
         onClose={() => setSnapOpen(false)}
@@ -356,11 +365,13 @@ function Header({
   hasConnection,
   onExport,
   onImport,
+  onOpenExcel,
 }: {
   onOpenSettings: () => void;
   hasConnection: boolean | null;
   onExport: () => void;
   onImport: () => void;
+  onOpenExcel: () => void;
 }) {
   return (
     <header className="titlebar-drag relative z-20 flex items-center justify-between px-5 h-12 border-b border-white/5 bg-bg-panel/60 backdrop-blur-xl">
@@ -409,10 +420,20 @@ function Header({
           variant="ghost"
           size="sm"
           onClick={onExport}
-          title="Exporter votre espace de travail à partager"
+          title="Exporter votre espace de travail (.sapwork)"
         >
           <Download className="size-3.5" />
-          Exporter
+          Partager
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onOpenExcel}
+          title="Exporter en Excel avec un onglet Accueil et une feuille par table"
+          className="bg-accent-gradient text-white border-0 shadow-glow hover:brightness-110"
+        >
+          <FileSpreadsheet className="size-3.5" />
+          Excel
         </Button>
         <Button variant="secondary" size="sm" onClick={onOpenSettings}>
           <Settings className="size-3.5" />

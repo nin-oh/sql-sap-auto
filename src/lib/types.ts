@@ -119,6 +119,24 @@ declare global {
         rows: Record<string, unknown>[],
         columns: string[],
       ) => Promise<{ success: boolean; filePath?: string; canceled?: boolean }>;
+      exportExcel: (args: {
+        items: Array<{
+          name: string;
+          description?: string;
+          sql: string;
+          params: Record<string, unknown>;
+          columns: ColumnMeta[];
+          rows: Record<string, unknown>[];
+        }>;
+        title?: string;
+        exportedBy?: string;
+        defaultFileName?: string;
+      }) => Promise<{
+        success: boolean;
+        filePath?: string;
+        canceled?: boolean;
+        error?: string;
+      }>;
     };
   }
 }

@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 import fs from "node:fs";
 import { runQuery, testConnection, listTables } from "./db";
+import { exportExcel, type ExcelExportItem } from "./excel";
 
 type ConnectionConfig = {
   server: string;
@@ -426,6 +427,43 @@ ipcMain.handle(
         snapshots: (parsed.snapshots ?? []).length,
       },
     };
+  },
+);
+
+ipcMain.handle(
+  "export:excel",
+  async (
+    _e,
+    args: {
+      items: ExcelExportItem[];
+      title?: string;
+      exportedBy?: string;
+      defaultFileName?: string;
+    },
+  ) => {
+    if (!mainWindow) return { success: false, error: "No window" };
+    if (!args.items || args.items.length === 0) {
+      return { success: false, error: "Aucune table à exporter." };
+    }
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: "Exporter en Excel",
+      defaultPath:
+        args.defaultFileName ||
+        `export_sap_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: "Classeur Excel", extensions: ["xlsx"] }],
+    });
+    if (canceled || !filePath) return { success: false, canceled: true };
+    try {
+      await exportExcel({
+        filePath,
+        title: args.title,
+        exportedBy: args.exportedBy,
+        items: args.items,
+      });
+      return { success: true, filePath };
+    } catch (e) {
+      return { success: false, error: (e as Error).message };
+    }
   },
 );
 

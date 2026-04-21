@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(
+      1200px 600px at 10% -10%,
+      rgba(124, 92, 255, 0.15),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 500px at 100% 0%,
+      rgba(52, 211, 153, 0.08),
+      transparent 60%
+    ),
+    #0b0d12;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-nodrag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #232a3d;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2e3755;
+  background-clip: content-box;
+}
+
+/* CodeMirror tweaks */
+.cm-editor {
+  background: transparent !important;
+  border-radius: 10px;
+  font-family:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13.5px;
+}
+.cm-editor .cm-scroller {
+  font-family: inherit;
+  padding: 10px 6px;
+}
+.cm-editor .cm-gutters {
+  background: transparent !important;
+  border: none !important;
+  color: #4b5270;
+}
+.cm-editor.cm-focused {
+  outline: none !important;
+}
+.cm-editor .cm-activeLine {
+  background: rgba(124, 92, 255, 0.06) !important;
+}
+.cm-editor .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background: rgba(124, 92, 255, 0.25) !important;
+}
+
+/* Glass card */
+.glass {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0)
+    ),
+    rgba(20, 24, 36, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Focus ring */
+.ring-accent:focus {
+  outline: none;
+  box-shadow:
+    0 0 0 2px rgba(124, 92, 255, 0.55),
+    0 0 0 4px rgba(124, 92, 255, 0.18);
+}

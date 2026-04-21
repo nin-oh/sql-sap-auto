@@ -27,6 +27,9 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { TemplatesPanel } from "./components/TemplatesPanel";
 import { SnapshotsPanel } from "./components/SnapshotsPanel";
 import { ConnectionDialog } from "./components/ConnectionDialog";
+import { Aurora } from "./components/Aurora";
+import { KpiStrip } from "./components/KpiStrip";
+import { EmptyState } from "./components/EmptyState";
 import { useAppStore } from "./store/appStore";
 import { cn } from "./lib/cn";
 
@@ -76,7 +79,8 @@ export default function App() {
   }, [runQuery]);
 
   return (
-    <div className="h-screen w-screen flex flex-col text-slate-100">
+    <div className="h-screen w-screen flex flex-col text-slate-100 relative">
+      <Aurora />
       <Header
         onOpenSettings={() => setConnOpen(true)}
         hasConnection={hasConnection}
@@ -84,7 +88,7 @@ export default function App() {
         onImport={() => void importWorkspace()}
       />
 
-      <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr] gap-0">
+      <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr] gap-0 relative z-10">
         <aside className="border-r border-white/5 bg-bg-panel/50 flex flex-col min-h-0">
           <div className="flex items-center gap-1 p-2 border-b border-white/5">
             {(
@@ -97,10 +101,11 @@ export default function App() {
               <button
                 key={t.id}
                 onClick={() => setSidebarTab(t.id)}
+                data-active={sidebarTab === t.id}
                 className={cn(
-                  "flex-1 text-xs font-medium rounded-md px-2 py-1.5 transition",
+                  "tab-pill flex-1 text-xs font-medium rounded-md px-2 py-1.5 transition",
                   sidebarTab === t.id
-                    ? "bg-accent/15 text-accent-glow"
+                    ? "text-white"
                     : "text-slate-400 hover:text-white hover:bg-white/5",
                 )}
               >
@@ -120,13 +125,16 @@ export default function App() {
         </aside>
 
         <main className="p-4 min-h-0 overflow-hidden flex flex-col gap-4">
-          <Card>
+          <Card className="relative overflow-hidden">
+            {running && <div className="scanbar" />}
             <CardHeader>
               <div className="flex items-center gap-2">
-                <div className="size-6 rounded-md bg-gradient-to-br from-accent to-[#6b4ff0] flex items-center justify-center shadow-glow">
+                <div className="size-7 rounded-lg bg-accent-gradient flex items-center justify-center shadow-glow">
                   <Database className="size-3.5 text-white" />
                 </div>
-                <span className="text-sm font-semibold">Éditeur de requête</span>
+                <span className="text-sm font-semibold grad-text">
+                  Éditeur de requête
+                </span>
                 <Badge tone="accent">SQL Server</Badge>
               </div>
               <div className="flex items-center gap-2">
@@ -158,7 +166,9 @@ export default function App() {
             </CardBody>
           </Card>
 
-          <Card className="flex-1 min-h-0 flex flex-col">
+          {rows.length > 0 && !error && <KpiStrip />}
+
+          <Card className="flex-1 min-h-0 flex flex-col glass-lift">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1 bg-bg-soft border border-border rounded-lg p-1">
@@ -248,6 +258,8 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+              ) : rows.length === 0 && !running ? (
+                <EmptyState />
               ) : view === "results" ? (
                 <ResultsTable />
               ) : (
@@ -351,13 +363,22 @@ function Header({
   onImport: () => void;
 }) {
   return (
-    <header className="titlebar-drag flex items-center justify-between px-5 h-12 border-b border-white/5 bg-bg-panel/70 backdrop-blur">
+    <header className="titlebar-drag relative z-20 flex items-center justify-between px-5 h-12 border-b border-white/5 bg-bg-panel/60 backdrop-blur-xl">
+      <div
+        className="absolute inset-x-0 -bottom-px h-px"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent, rgba(124,92,255,0.4), rgba(34,211,238,0.2), transparent)",
+        }}
+      />
       <div className="flex items-center gap-2.5">
-        <div className="size-7 rounded-lg bg-gradient-to-br from-accent via-[#6b4ff0] to-[#4a2dcf] flex items-center justify-center shadow-glow animate-pulseGlow">
+        <div className="size-7 rounded-lg bg-accent-gradient flex items-center justify-center shadow-glow animate-pulseGlow">
           <Database className="size-4 text-white" />
         </div>
         <div className="leading-tight">
-          <div className="text-sm font-semibold">SAP Query Desktop</div>
+          <div className="text-sm font-semibold grad-text">
+            SAP Query Desktop
+          </div>
           <div className="text-[10.5px] text-muted">
             Interrogez votre datawarehouse SAP en toute simplicité
           </div>

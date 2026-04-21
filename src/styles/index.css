@@ -9,18 +9,9 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(
-      1200px 600px at 10% -10%,
-      rgba(124, 92, 255, 0.15),
-      transparent 60%
-    ),
-    radial-gradient(
-      900px 500px at 100% 0%,
-      rgba(52, 211, 153, 0.08),
-      transparent 60%
-    ),
-    #0b0d12;
+  background: #0a0b11;
+  color-scheme: dark;
+  overflow: hidden;
   -webkit-app-region: no-drag;
 }
 
@@ -29,6 +20,67 @@ body {
 }
 .titlebar-nodrag {
   -webkit-app-region: no-drag;
+}
+
+/* Aurora: layered radial gradients floating slowly behind everything */
+.aurora {
+  position: fixed;
+  inset: -10%;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(60px) saturate(120%);
+}
+.aurora::before,
+.aurora::after,
+.aurora > span {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.aurora::before {
+  background: radial-gradient(
+    40% 40% at 18% 20%,
+    rgba(124, 92, 255, 0.55),
+    transparent 70%
+  );
+  animation: auroraA 22s ease-in-out infinite;
+}
+.aurora::after {
+  background: radial-gradient(
+    35% 35% at 85% 25%,
+    rgba(34, 211, 238, 0.28),
+    transparent 70%
+  );
+  animation: auroraB 28s ease-in-out infinite;
+}
+.aurora > span {
+  background: radial-gradient(
+    40% 40% at 55% 90%,
+    rgba(52, 211, 153, 0.22),
+    transparent 70%
+  );
+  animation: auroraC 32s ease-in-out infinite;
+}
+
+/* Subtle grid overlay above the aurora, below content */
+.grid-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.015) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  mask-image: radial-gradient(
+    circle at 50% 40%,
+    rgba(0, 0, 0, 0.8),
+    transparent 75%
+  );
 }
 
 /* Scrollbars */
@@ -78,17 +130,54 @@ body {
   background: rgba(124, 92, 255, 0.25) !important;
 }
 
-/* Glass card */
+/* Glass card with gradient border */
 .glass {
+  position: relative;
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.025),
       rgba(255, 255, 255, 0)
     ),
-    rgba(20, 24, 36, 0.7);
-  backdrop-filter: blur(12px);
+    rgba(20, 24, 36, 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+.glass-lift:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 2px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+/* Gradient border utility via mask */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(124, 92, 255, 0.55),
+    rgba(34, 211, 238, 0.25) 50%,
+    rgba(124, 92, 255, 0) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 /* Focus ring */
@@ -97,4 +186,78 @@ body {
   box-shadow:
     0 0 0 2px rgba(124, 92, 255, 0.55),
     0 0 0 4px rgba(124, 92, 255, 0.18);
+}
+
+/* Shimmer loader */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.02) 0%,
+    rgba(255, 255, 255, 0.08) 40%,
+    rgba(255, 255, 255, 0.02) 80%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Scanning bar while a query is running */
+.scanbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.scanbar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(124, 92, 255, 0.9) 50%,
+    transparent 100%
+  );
+  animation: scan 1.8s ease-in-out infinite;
+}
+
+/* Number-tick entrance */
+.tick {
+  display: inline-block;
+  animation: tick 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Title gradient text */
+.grad-text {
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #d6ccff 40%,
+    #9a82ff 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Sidebar tab pill with sliding indicator via :has() */
+.tab-pill {
+  position: relative;
+  isolation: isolate;
+}
+.tab-pill[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(124, 92, 255, 0.25),
+    rgba(34, 211, 238, 0.12)
+  );
+  box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.3) inset;
+  z-index: -1;
+  animation: fadeIn 180ms ease-out;
 }

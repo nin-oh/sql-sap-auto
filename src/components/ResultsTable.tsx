@@ -136,9 +136,9 @@ export function ResultsTable() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-border bg-bg-soft/60">
+      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-border bg-bg-soft/60 relative">
         <table className="min-w-full text-[12.5px]">
-          <thead className="sticky top-0 z-10 bg-bg-panel/95 backdrop-blur">
+          <thead className="sticky top-0 z-10 bg-bg-panel/95 backdrop-blur-md shadow-[0_1px_0_rgba(255,255,255,0.05)]">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 {hg.headers.map((h) => {
@@ -147,13 +147,15 @@ export function ResultsTable() {
                     <th
                       key={h.id}
                       onClick={h.column.getToggleSortingHandler()}
-                      className="text-left font-semibold text-slate-300 px-3 py-2.5 border-b border-border cursor-pointer select-none hover:bg-white/[0.03]"
+                      className="text-left font-semibold text-slate-200 px-3 py-2.5 border-b border-border cursor-pointer select-none hover:bg-accent/5 transition"
                     >
                       <div className="flex items-center gap-1.5">
-                        {flexRender(
-                          h.column.columnDef.header,
-                          h.getContext(),
-                        )}
+                        <span className="uppercase tracking-wide text-[10.5px]">
+                          {flexRender(
+                            h.column.columnDef.header,
+                            h.getContext(),
+                          )}
+                        </span>
                         {sort === "asc" ? (
                           <ArrowUp className="size-3 text-accent-glow" />
                         ) : sort === "desc" ? (
@@ -172,7 +174,7 @@ export function ResultsTable() {
             {table.getRowModel().rows.map((row, i) => (
               <tr
                 key={row.id}
-                className={`border-b border-border/60 hover:bg-white/[0.025] ${
+                className={`group border-b border-border/60 transition hover:bg-accent/[0.06] hover:shadow-[inset_2px_0_0_rgba(124,92,255,0.6)] ${
                   i % 2 ? "bg-white/[0.015]" : ""
                 }`}
               >

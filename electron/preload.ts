@@ -16,6 +16,15 @@ const api = {
   saveTemplate: (tpl: unknown) => ipcRenderer.invoke("templates:save", tpl),
   deleteTemplate: (id: string) => ipcRenderer.invoke("templates:delete", id),
 
+  listSnapshots: () => ipcRenderer.invoke("snapshots:list"),
+  saveSnapshot: (snap: unknown) => ipcRenderer.invoke("snapshots:save", snap),
+  deleteSnapshot: (id: string) => ipcRenderer.invoke("snapshots:delete", id),
+
+  exportWorkspace: (hint?: string) =>
+    ipcRenderer.invoke("workspace:export", hint),
+  importWorkspace: (mode: "merge" | "replace" = "merge") =>
+    ipcRenderer.invoke("workspace:import", { mode }),
+
   exportCsv: (rows: unknown, columns: unknown) =>
     ipcRenderer.invoke("export:csv", { rows, columns }),
 };

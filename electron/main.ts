@@ -47,10 +47,38 @@ type Template = {
   createdAt: number;
 };
 
+type ColumnMeta = {
+  name: string;
+  type: "number" | "date" | "boolean" | "string";
+};
+
+type Snapshot = {
+  id: string;
+  name: string;
+  description?: string;
+  sql: string;
+  params: Record<string, unknown>;
+  columns: ColumnMeta[];
+  rows: Record<string, unknown>[];
+  createdAt: number;
+  createdBy?: string;
+};
+
+type Workspace = {
+  kind: "sap-query-workspace";
+  version: 1;
+  exportedAt: number;
+  exportedBy?: string;
+  templates: Template[];
+  history: HistoryEntry[];
+  snapshots: Snapshot[];
+};
+
 const userDataDir = () => app.getPath("userData");
 const connectionFile = () => path.join(userDataDir(), "connection.json");
 const historyFile = () => path.join(userDataDir(), "history.json");
 const templatesFile = () => path.join(userDataDir(), "templates.json");
+const snapshotsFile = () => path.join(userDataDir(), "snapshots.json");
 
 function readJsonSafe<T>(file: string, fallback: T): T {
   try {
@@ -117,6 +145,21 @@ function loadTemplates(): Template[] {
 
 function saveTemplates(list: Template[]) {
   writeJson(templatesFile(), list);
+}
+
+function loadSnapshots(): Snapshot[] {
+  return readJsonSafe<Snapshot[]>(snapshotsFile(), []);
+}
+
+function saveSnapshots(list: Snapshot[]) {
+  writeJson(snapshotsFile(), list);
+}
+
+const MAX_SNAPSHOT_ROWS = 20000;
+
+function capSnapshotRows(rows: Record<string, unknown>[]) {
+  if (rows.length <= MAX_SNAPSHOT_ROWS) return rows;
+  return rows.slice(0, MAX_SNAPSHOT_ROWS);
 }
 
 function seedTemplates(): Template[] {
@@ -280,6 +323,111 @@ ipcMain.handle("templates:delete", async (_e, id: string) => {
   saveTemplates(list);
   return list;
 });
+
+ipcMain.handle("snapshots:list", async () => loadSnapshots());
+
+ipcMain.handle("snapshots:save", async (_e, snap: Snapshot) => {
+  const list = loadSnapshots();
+  const idx = list.findIndex((s) => s.id === snap.id);
+  const capped: Snapshot = { ...snap, rows: capSnapshotRows(snap.rows) };
+  if (idx >= 0) list[idx] = capped;
+  else list.unshift(capped);
+  saveSnapshots(list);
+  return list;
+});
+
+ipcMain.handle("snapshots:delete", async (_e, id: string) => {
+  const list = loadSnapshots().filter((s) => s.id !== id);
+  saveSnapshots(list);
+  return list;
+});
+
+ipcMain.handle("workspace:export", async (_e, hint?: string) => {
+  if (!mainWindow) return { success: false, error: "No window" };
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: "Exporter un espace de travail",
+    defaultPath: `sap-workspace-${new Date()
+      .toISOString()
+      .slice(0, 10)}.sapwork`,
+    filters: [{ name: "SAP Workspace", extensions: ["sapwork", "json"] }],
+  });
+  if (canceled || !filePath) return { success: false, canceled: true };
+  const payload: Workspace = {
+    kind: "sap-query-workspace",
+    version: 1,
+    exportedAt: Date.now(),
+    exportedBy: hint,
+    templates: loadTemplates(),
+    history: loadHistory(),
+    snapshots: loadSnapshots(),
+  };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+  return { success: true, filePath };
+});
+
+ipcMain.handle(
+  "workspace:import",
+  async (
+    _e,
+    opts: { mode: "merge" | "replace" } = { mode: "merge" },
+  ) => {
+    if (!mainWindow) return { success: false, error: "No window" };
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: "Importer un espace de travail",
+      properties: ["openFile"],
+      filters: [
+        { name: "SAP Workspace", extensions: ["sapwork", "json"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    if (canceled || filePaths.length === 0)
+      return { success: false, canceled: true };
+    const filePath = filePaths[0];
+    let parsed: Workspace;
+    try {
+      const raw = fs.readFileSync(filePath, "utf8");
+      parsed = JSON.parse(raw) as Workspace;
+    } catch (e) {
+      return {
+        success: false,
+        error: `Fichier invalide: ${(e as Error).message}`,
+      };
+    }
+    if (parsed.kind !== "sap-query-workspace") {
+      return {
+        success: false,
+        error: "Ce fichier n'est pas un espace de travail SAP Query valide.",
+      };
+    }
+    const byId = <T extends { id: string }>(a: T[], b: T[]): T[] => {
+      const map = new Map<string, T>();
+      for (const item of a) map.set(item.id, item);
+      for (const item of b) map.set(item.id, item);
+      return Array.from(map.values());
+    };
+    if (opts.mode === "replace") {
+      saveTemplates(parsed.templates ?? []);
+      writeJson(historyFile(), parsed.history ?? []);
+      saveSnapshots(parsed.snapshots ?? []);
+    } else {
+      saveTemplates(byId(loadTemplates(), parsed.templates ?? []));
+      const mergedHistory = [...(parsed.history ?? []), ...loadHistory()]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 500);
+      writeJson(historyFile(), mergedHistory);
+      saveSnapshots(byId(loadSnapshots(), parsed.snapshots ?? []));
+    }
+    return {
+      success: true,
+      filePath,
+      counts: {
+        templates: (parsed.templates ?? []).length,
+        history: (parsed.history ?? []).length,
+        snapshots: (parsed.snapshots ?? []).length,
+      },
+    };
+  },
+);
 
 ipcMain.handle(
   "export:csv",

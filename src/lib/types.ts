@@ -59,6 +59,18 @@ export type Template = {
   createdAt: number;
 };
 
+export type Snapshot = {
+  id: string;
+  name: string;
+  description?: string;
+  sql: string;
+  params: Record<string, unknown>;
+  columns: ColumnMeta[];
+  rows: Record<string, unknown>[];
+  createdAt: number;
+  createdBy?: string;
+};
+
 declare global {
   interface Window {
     sap: {
@@ -83,6 +95,26 @@ declare global {
       listTemplates: () => Promise<Template[]>;
       saveTemplate: (tpl: Template) => Promise<Template[]>;
       deleteTemplate: (id: string) => Promise<Template[]>;
+      listSnapshots: () => Promise<Snapshot[]>;
+      saveSnapshot: (snap: Snapshot) => Promise<Snapshot[]>;
+      deleteSnapshot: (id: string) => Promise<Snapshot[]>;
+      exportWorkspace: (
+        hint?: string,
+      ) => Promise<{
+        success: boolean;
+        filePath?: string;
+        canceled?: boolean;
+        error?: string;
+      }>;
+      importWorkspace: (
+        mode?: "merge" | "replace",
+      ) => Promise<{
+        success: boolean;
+        filePath?: string;
+        canceled?: boolean;
+        error?: string;
+        counts?: { templates: number; history: number; snapshots: number };
+      }>;
       exportCsv: (
         rows: Record<string, unknown>[],
         columns: string[],

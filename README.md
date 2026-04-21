@@ -41,6 +41,28 @@ ORDER BY s.Dte
 Variables: `SlpCode` (number), `Entrepot` (text, `*` = all), `StartDate` /
 `EndDate` (date). Users just fill the form — no SQL required.
 
+## Sharing results with colleagues who don't have SQL access
+
+Not everyone on the team has VPN + SQL credentials, but they still need to see
+the data. The app solves that with **snapshots** + **workspace files**.
+
+**Workflow:**
+
+1. Person A (has SQL access) runs a query → clicks **Capturer** in the results
+   header → gives it a name ("Ventes Q1 — vendeur 12").
+2. Person A clicks **Exporter** in the top bar → saves a `.sapwork` file
+   (plain JSON) containing all templates, history and snapshots.
+3. Person A sends the `.sapwork` file to Person B (Slack, email, shared drive…).
+4. Person B opens the app → clicks **Importer** → picks the file.
+5. Person B switches to the **Captures** tab in the sidebar → clicks the
+   snapshot → **the tables and charts render exactly as Person A saw them, with
+   no database connection required**.
+
+Snapshots are cap-limited to 20 000 rows each to keep file size reasonable.
+Import mode is "merge by id" — existing templates / snapshots with the same id
+are overwritten, everything else is kept. Swap to the replace mode in code if
+you want a clean wipe.
+
 ## Network / VPN
 
 The SQL Server at `192.168.1.240` lives on the internal network, so the app can

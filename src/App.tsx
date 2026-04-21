@@ -9,16 +9,23 @@ import {
   AlertTriangle,
   Keyboard,
   Wifi,
+  Camera,
+  Upload,
+  Download,
+  X,
 } from "lucide-react";
 import { Button } from "./components/ui/Button";
 import { Badge } from "./components/ui/Badge";
 import { Card, CardBody, CardHeader } from "./components/ui/Card";
+import { Input } from "./components/ui/Input";
+import { Modal } from "./components/ui/Modal";
 import { QueryEditor } from "./components/QueryEditor";
 import { VariablePanel } from "./components/VariablePanel";
 import { ResultsTable } from "./components/ResultsTable";
 import { ChartView } from "./components/ChartView";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { TemplatesPanel } from "./components/TemplatesPanel";
+import { SnapshotsPanel } from "./components/SnapshotsPanel";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { useAppStore } from "./store/appStore";
 import { cn } from "./lib/cn";
@@ -34,18 +41,26 @@ export default function App() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const runQuery = useAppStore((s) => s.runQuery);
+  const activeSnapshotId = useAppStore((s) => s.activeSnapshotId);
+  const saveCurrentAsSnapshot = useAppStore((s) => s.saveCurrentAsSnapshot);
+  const exportWorkspace = useAppStore((s) => s.exportWorkspace);
+  const importWorkspace = useAppStore((s) => s.importWorkspace);
+  const importMessage = useAppStore((s) => s.importMessage);
+  const clearImportMessage = useAppStore((s) => s.clearImportMessage);
 
   const [connOpen, setConnOpen] = useState(false);
   const [hasConnection, setHasConnection] = useState<boolean | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"templates" | "history">(
-    "templates",
-  );
+  const [sidebarTab, setSidebarTab] = useState<
+    "templates" | "snapshots" | "history"
+  >("templates");
+  const [snapOpen, setSnapOpen] = useState(false);
+  const [snapName, setSnapName] = useState("");
+  const [snapDesc, setSnapDesc] = useState("");
 
   useEffect(() => {
     void initialize();
     window.sap.getConnection().then((c) => {
       setHasConnection(!!c);
-      if (!c) setConnOpen(true);
     });
   }, [initialize]);
 
@@ -65,36 +80,42 @@ export default function App() {
       <Header
         onOpenSettings={() => setConnOpen(true)}
         hasConnection={hasConnection}
+        onExport={() => void exportWorkspace()}
+        onImport={() => void importWorkspace()}
       />
 
       <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr] gap-0">
         <aside className="border-r border-white/5 bg-bg-panel/50 flex flex-col min-h-0">
           <div className="flex items-center gap-1 p-2 border-b border-white/5">
-            <button
-              onClick={() => setSidebarTab("templates")}
-              className={cn(
-                "flex-1 text-xs font-medium rounded-md px-2 py-1.5 transition",
-                sidebarTab === "templates"
-                  ? "bg-accent/15 text-accent-glow"
-                  : "text-slate-400 hover:text-white hover:bg-white/5",
-              )}
-            >
-              Modèles
-            </button>
-            <button
-              onClick={() => setSidebarTab("history")}
-              className={cn(
-                "flex-1 text-xs font-medium rounded-md px-2 py-1.5 transition",
-                sidebarTab === "history"
-                  ? "bg-accent/15 text-accent-glow"
-                  : "text-slate-400 hover:text-white hover:bg-white/5",
-              )}
-            >
-              Historique
-            </button>
+            {(
+              [
+                { id: "templates", label: "Modèles" },
+                { id: "snapshots", label: "Captures" },
+                { id: "history", label: "Historique" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSidebarTab(t.id)}
+                className={cn(
+                  "flex-1 text-xs font-medium rounded-md px-2 py-1.5 transition",
+                  sidebarTab === t.id
+                    ? "bg-accent/15 text-accent-glow"
+                    : "text-slate-400 hover:text-white hover:bg-white/5",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
           <div className="flex-1 min-h-0">
-            {sidebarTab === "templates" ? <TemplatesPanel /> : <HistoryPanel />}
+            {sidebarTab === "templates" ? (
+              <TemplatesPanel />
+            ) : sidebarTab === "snapshots" ? (
+              <SnapshotsPanel />
+            ) : (
+              <HistoryPanel />
+            )}
           </div>
         </aside>
 
@@ -171,8 +192,21 @@ export default function App() {
                     {rows.length.toLocaleString()} résultats
                   </Badge>
                 )}
-                {durationMs != null && (
-                  <Badge>{durationMs} ms</Badge>
+                {durationMs != null && <Badge>{durationMs} ms</Badge>}
+                {activeSnapshotId && (
+                  <Badge tone="accent">Capture · hors ligne</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {rows.length > 0 && !activeSnapshotId && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSnapOpen(true)}
+                  >
+                    <Camera className="size-3.5" />
+                    Capturer
+                  </Button>
                 )}
               </div>
             </CardHeader>
@@ -229,6 +263,78 @@ export default function App() {
         onClose={() => setConnOpen(false)}
         onSaved={() => setHasConnection(true)}
       />
+
+      <Modal
+        open={snapOpen}
+        onClose={() => setSnapOpen(false)}
+        title="Capturer les résultats"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSnapOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (!snapName.trim()) return;
+                await saveCurrentAsSnapshot(
+                  snapName.trim(),
+                  snapDesc.trim() || undefined,
+                );
+                setSnapName("");
+                setSnapDesc("");
+                setSnapOpen(false);
+              }}
+            >
+              <Camera className="size-3.5" />
+              Enregistrer
+            </Button>
+          </>
+        }
+      >
+        <p className="text-xs text-muted mb-3">
+          Les lignes actuelles et leurs colonnes sont figées et sauvegardées
+          localement. Exportez ensuite votre espace de travail pour partager ce
+          jeu de données avec un collègue qui n'a pas d'accès SQL.
+        </p>
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-300">Nom</span>
+            <Input
+              className="mt-1"
+              value={snapName}
+              onChange={(e) => setSnapName(e.target.value)}
+              placeholder="Ex: Ventes Q1 — vendeur 12"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-300">
+              Description
+            </span>
+            <Input
+              className="mt-1"
+              value={snapDesc}
+              onChange={(e) => setSnapDesc(e.target.value)}
+              placeholder="Optionnel"
+            />
+          </label>
+        </div>
+      </Modal>
+
+      {importMessage && (
+        <div className="fixed bottom-6 right-6 z-50 animate-slideUp">
+          <div className="glass rounded-xl shadow-panel border border-border px-4 py-3 flex items-start gap-3 max-w-md">
+            <div className="text-xs text-slate-200">{importMessage}</div>
+            <button
+              className="text-muted hover:text-white"
+              onClick={clearImportMessage}
+              aria-label="Fermer"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,9 +342,13 @@ export default function App() {
 function Header({
   onOpenSettings,
   hasConnection,
+  onExport,
+  onImport,
 }: {
   onOpenSettings: () => void;
   hasConnection: boolean | null;
+  onExport: () => void;
+  onImport: () => void;
 }) {
   return (
     <header className="titlebar-drag flex items-center justify-between px-5 h-12 border-b border-white/5 bg-bg-panel/70 backdrop-blur">
@@ -265,6 +375,24 @@ function Header({
             Non connecté
           </Badge>
         ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onImport}
+          title="Importer un fichier .sapwork d'un collègue"
+        >
+          <Upload className="size-3.5" />
+          Importer
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onExport}
+          title="Exporter votre espace de travail à partager"
+        >
+          <Download className="size-3.5" />
+          Exporter
+        </Button>
         <Button variant="secondary" size="sm" onClick={onOpenSettings}>
           <Settings className="size-3.5" />
           Connexion

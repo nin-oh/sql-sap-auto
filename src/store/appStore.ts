@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   ColumnMeta,
   HistoryEntry,
+  Snapshot,
   Template,
   Variable,
 } from "../lib/types";
@@ -24,10 +25,14 @@ type AppState = {
   templates: Template[];
   activeTemplateId: string | null;
   history: HistoryEntry[];
+  snapshots: Snapshot[];
+  activeSnapshotId: string | null;
+  importMessage: string | null;
 
   setSql: (sql: string) => void;
   setValue: (name: string, value: string) => void;
   setView: (view: View) => void;
+  clearImportMessage: () => void;
 
   initialize: () => Promise<void>;
   loadTemplate: (id: string) => void;
@@ -37,6 +42,13 @@ type AppState = {
   clearHistory: () => Promise<void>;
   runFromHistory: (entry: HistoryEntry) => void;
   runQuery: () => Promise<void>;
+
+  reloadSnapshots: () => Promise<void>;
+  saveCurrentAsSnapshot: (name: string, description?: string) => Promise<void>;
+  loadSnapshot: (id: string) => void;
+  deleteSnapshot: (id: string) => Promise<void>;
+  exportWorkspace: () => Promise<void>;
+  importWorkspace: () => Promise<void>;
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -54,6 +66,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   templates: [],
   activeTemplateId: null,
   history: [],
+  snapshots: [],
+  activeSnapshotId: null,
+  importMessage: null,
 
   setSql: (sql) => {
     const variables = mergeVariables(sql, get().variables);
@@ -70,12 +85,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setView: (view) => set({ view }),
 
+  clearImportMessage: () => set({ importMessage: null }),
+
   initialize: async () => {
-    const [templates, history] = await Promise.all([
+    const [templates, history, snapshots] = await Promise.all([
       window.sap.listTemplates(),
       window.sap.listHistory(),
+      window.sap.listSnapshots(),
     ]);
-    set({ templates, history });
+    set({ templates, history, snapshots });
     if (templates[0]) {
       get().loadTemplate(templates[0].id);
     }
@@ -94,6 +112,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       variables,
       values,
       activeTemplateId: id,
+      activeSnapshotId: null,
       rows: [],
       columns: [],
       error: null,
@@ -184,5 +203,92 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
     await get().reloadHistory();
+  },
+
+  reloadSnapshots: async () => {
+    const snapshots = await window.sap.listSnapshots();
+    set({ snapshots });
+  },
+
+  saveCurrentAsSnapshot: async (name, description) => {
+    const { sql, values, variables, rows, columns } = get();
+    if (rows.length === 0) return;
+    const params: Record<string, unknown> = {};
+    for (const v of variables) {
+      params[v.name] = values[v.name] ?? v.default ?? "";
+    }
+    const snap: Snapshot = {
+      id: `snap_${Date.now().toString(36)}`,
+      name,
+      description,
+      sql,
+      params,
+      columns,
+      rows,
+      createdAt: Date.now(),
+    };
+    const snapshots = await window.sap.saveSnapshot(snap);
+    set({ snapshots, activeSnapshotId: snap.id });
+  },
+
+  loadSnapshot: (id) => {
+    const snap = get().snapshots.find((s) => s.id === id);
+    if (!snap) return;
+    const variables = mergeVariables(snap.sql, get().variables);
+    const values: Record<string, string> = {};
+    for (const v of variables) {
+      const raw = (snap.params as Record<string, unknown>)[v.name];
+      values[v.name] = raw != null ? String(raw) : "";
+    }
+    set({
+      sql: snap.sql,
+      variables,
+      values,
+      rows: snap.rows,
+      columns: snap.columns,
+      error: null,
+      errorHint: null,
+      errorKind: null,
+      durationMs: null,
+      activeSnapshotId: id,
+      activeTemplateId: null,
+    });
+  },
+
+  deleteSnapshot: async (id) => {
+    const snapshots = await window.sap.deleteSnapshot(id);
+    const patch: Partial<AppState> = { snapshots };
+    if (get().activeSnapshotId === id) {
+      patch.activeSnapshotId = null;
+      patch.rows = [];
+      patch.columns = [];
+    }
+    set(patch);
+  },
+
+  exportWorkspace: async () => {
+    const r = await window.sap.exportWorkspace();
+    if (r.success && r.filePath) {
+      set({ importMessage: `Espace exporté : ${r.filePath}` });
+    }
+  },
+
+  importWorkspace: async () => {
+    const r = await window.sap.importWorkspace("merge");
+    if (r.success && r.counts) {
+      const [templates, history, snapshots] = await Promise.all([
+        window.sap.listTemplates(),
+        window.sap.listHistory(),
+        window.sap.listSnapshots(),
+      ]);
+      set({
+        templates,
+        history,
+        snapshots,
+        importMessage: `Import réussi : ${r.counts.templates} modèles · ${r.counts.snapshots} captures · ${r.counts.history} historiques.`,
+      });
+    } else if (r.error) {
+      set({ importMessage: `Import échoué : ${r.error}` });
+    }
   },
 }));

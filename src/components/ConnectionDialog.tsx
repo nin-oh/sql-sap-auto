@@ -3,8 +3,14 @@ import { Modal } from "./ui/Modal";
 import { Input } from "./ui/Input";
 import { Button } from "./ui/Button";
 import { Badge } from "./ui/Badge";
-import { Loader2, CheckCircle2, AlertTriangle, Database } from "lucide-react";
-import type { ConnectionConfig } from "../lib/types";
+import {
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  Database,
+  Wifi,
+} from "lucide-react";
+import type { ConnectionConfig, ErrorKind } from "../lib/types";
 
 const EMPTY: ConnectionConfig = {
   server: "192.168.1.240",
@@ -29,7 +35,7 @@ export function ConnectionDialog({
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<
     | { success: true; version: string }
-    | { success: false; error: string }
+    | { success: false; error: string; hint?: string; kind?: ErrorKind }
     | null
   >(null);
 
@@ -52,7 +58,12 @@ export function ConnectionDialog({
     setResult(
       r.success
         ? { success: true, version: r.version ?? "" }
-        : { success: false, error: r.error ?? "Unknown error" },
+        : {
+            success: false,
+            error: r.error ?? "Unknown error",
+            hint: r.hint,
+            kind: r.kind,
+          },
     );
   };
 
@@ -174,11 +185,34 @@ export function ConnectionDialog({
               </div>
             </div>
           ) : (
-            <div className="flex items-start gap-2 p-3 bg-danger/5 border border-danger/20 rounded-lg">
-              <AlertTriangle className="size-4 text-danger flex-shrink-0 mt-0.5" />
+            <div
+              className={`flex items-start gap-2 p-3 rounded-lg border ${
+                result.kind === "network"
+                  ? "bg-warn/5 border-warn/30"
+                  : "bg-danger/5 border-danger/20"
+              }`}
+            >
+              {result.kind === "network" ? (
+                <Wifi className="size-4 text-warn flex-shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="size-4 text-danger flex-shrink-0 mt-0.5" />
+              )}
               <div className="text-xs">
-                <p className="text-danger font-semibold">Échec de connexion</p>
-                <p className="text-slate-300 mt-1 font-mono text-[10.5px] break-all">
+                <p
+                  className={`font-semibold ${
+                    result.kind === "network" ? "text-warn" : "text-danger"
+                  }`}
+                >
+                  {result.kind === "network"
+                    ? "Serveur injoignable"
+                    : "Échec de connexion"}
+                </p>
+                {result.hint && (
+                  <p className="text-slate-200 mt-1 text-[11.5px]">
+                    {result.hint}
+                  </p>
+                )}
+                <p className="text-slate-400 mt-1 font-mono text-[10.5px] break-all">
                   {result.error}
                 </p>
               </div>
@@ -187,9 +221,19 @@ export function ConnectionDialog({
         </div>
       )}
 
-      <div className="mt-3 text-[11px] text-muted flex items-center gap-1.5">
-        <Badge tone="accent">Sécurisé</Badge>
-        Le mot de passe est chiffré via le trousseau du système d'exploitation.
+      <div className="mt-3 space-y-2">
+        <div className="text-[11px] text-muted flex items-center gap-1.5">
+          <Badge tone="accent">Sécurisé</Badge>
+          Le mot de passe est chiffré via le trousseau du système d'exploitation.
+        </div>
+        <div className="text-[11px] text-muted flex items-start gap-1.5">
+          <Wifi className="size-3 mt-0.5 flex-shrink-0" />
+          <span>
+            Le serveur <span className="font-mono">{cfg.server}</span> est sur le
+            réseau interne : connectez d'abord votre VPN d'entreprise avant de
+            tester.
+          </span>
+        </div>
       </div>
     </Modal>
   );

@@ -53,9 +53,52 @@ function coerce(value: unknown): unknown {
   return value;
 }
 
+type ErrorKind = "network" | "auth" | "database" | "query" | "unknown";
+
+function classifyError(e: unknown): { kind: ErrorKind; hint?: string } {
+  const err = e as { code?: string; message?: string; number?: number };
+  const msg = (err?.message ?? "").toString();
+  const code = (err?.code ?? "").toString();
+
+  if (
+    code === "ETIMEDOUT" ||
+    code === "ESOCKET" ||
+    code === "ECONNREFUSED" ||
+    code === "ECONNRESET" ||
+    code === "EHOSTUNREACH" ||
+    code === "ENETUNREACH" ||
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    /timeout|unreachable|failed to connect|getaddrinfo/i.test(msg)
+  ) {
+    return {
+      kind: "network",
+      hint: "Serveur injoignable. Vérifiez que votre VPN est bien connecté, puis réessayez.",
+    };
+  }
+  if (err.number === 18456 || /login failed/i.test(msg)) {
+    return {
+      kind: "auth",
+      hint: "Identifiants refusés par SQL Server. Vérifiez l'utilisateur et le mot de passe.",
+    };
+  }
+  if (err.number === 4060 || /cannot open database/i.test(msg)) {
+    return {
+      kind: "database",
+      hint: "La base de données indiquée est introuvable ou inaccessible à cet utilisateur.",
+    };
+  }
+  if (/syntax|invalid column|invalid object|incorrect syntax/i.test(msg)) {
+    return { kind: "query" };
+  }
+  return { kind: "unknown" };
+}
+
 export async function testConnection(cfg: ConnectionConfig): Promise<{
   success: boolean;
   error?: string;
+  hint?: string;
+  kind?: ErrorKind;
   version?: string;
 }> {
   let pool: sql.ConnectionPool | null = null;
@@ -64,7 +107,13 @@ export async function testConnection(cfg: ConnectionConfig): Promise<{
     const r = await pool.request().query("SELECT @@VERSION AS v");
     return { success: true, version: r.recordset[0]?.v ?? "" };
   } catch (e: unknown) {
-    return { success: false, error: (e as Error).message };
+    const c = classifyError(e);
+    return {
+      success: false,
+      error: (e as Error).message,
+      hint: c.hint,
+      kind: c.kind,
+    };
   } finally {
     if (pool) await pool.close().catch(() => undefined);
   }
@@ -76,7 +125,7 @@ export async function runQuery(
   params: Record<string, unknown>,
 ): Promise<
   | { success: true; rows: Record<string, unknown>[]; columns: ColumnMeta[] }
-  | { success: false; error: string }
+  | { success: false; error: string; hint?: string; kind?: ErrorKind }
 > {
   let pool: sql.ConnectionPool | null = null;
   try {
@@ -95,7 +144,13 @@ export async function runQuery(
       columns,
     };
   } catch (e: unknown) {
-    return { success: false, error: (e as Error).message };
+    const c = classifyError(e);
+    return {
+      success: false,
+      error: (e as Error).message,
+      hint: c.hint,
+      kind: c.kind,
+    };
   } finally {
     if (pool) await pool.close().catch(() => undefined);
   }

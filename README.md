@@ -41,6 +41,15 @@ ORDER BY s.Dte
 Variables: `SlpCode` (number), `Entrepot` (text, `*` = all), `StartDate` /
 `EndDate` (date). Users just fill the form — no SQL required.
 
+## Network / VPN
+
+The SQL Server at `192.168.1.240` lives on the internal network, so the app can
+only reach it while your **corporate VPN is connected**. When it isn't, the
+connection test and every query fail fast with a dedicated "Serveur injoignable"
+banner that tells the user to connect the VPN — instead of a cryptic TCP
+timeout. Recognized network error codes: `ETIMEDOUT`, `ESOCKET`, `ECONNREFUSED`,
+`ECONNRESET`, `EHOSTUNREACH`, `ENETUNREACH`, `ENOTFOUND`, `EAI_AGAIN`.
+
 ## Dev
 
 ```bash

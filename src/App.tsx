@@ -8,6 +8,7 @@ import {
   Loader2,
   AlertTriangle,
   Keyboard,
+  Wifi,
 } from "lucide-react";
 import { Button } from "./components/ui/Button";
 import { Badge } from "./components/ui/Badge";
@@ -26,6 +27,8 @@ export default function App() {
   const initialize = useAppStore((s) => s.initialize);
   const running = useAppStore((s) => s.running);
   const error = useAppStore((s) => s.error);
+  const errorHint = useAppStore((s) => s.errorHint);
+  const errorKind = useAppStore((s) => s.errorKind);
   const durationMs = useAppStore((s) => s.durationMs);
   const rows = useAppStore((s) => s.rows);
   const view = useAppStore((s) => s.view);
@@ -175,13 +178,38 @@ export default function App() {
             </CardHeader>
             <CardBody className="flex-1 min-h-0 flex flex-col">
               {error ? (
-                <div className="flex items-start gap-3 p-4 bg-danger/5 border border-danger/20 rounded-xl">
-                  <AlertTriangle className="size-5 text-danger flex-shrink-0" />
+                <div
+                  className={`flex items-start gap-3 p-4 rounded-xl border ${
+                    errorKind === "network"
+                      ? "bg-warn/5 border-warn/30"
+                      : "bg-danger/5 border-danger/20"
+                  }`}
+                >
+                  {errorKind === "network" ? (
+                    <Wifi className="size-5 text-warn flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="size-5 text-danger flex-shrink-0" />
+                  )}
                   <div className="text-sm">
-                    <p className="text-danger font-semibold">
-                      Erreur d'exécution
+                    <p
+                      className={`font-semibold ${
+                        errorKind === "network" ? "text-warn" : "text-danger"
+                      }`}
+                    >
+                      {errorKind === "network"
+                        ? "Serveur SQL injoignable"
+                        : errorKind === "auth"
+                          ? "Authentification refusée"
+                          : errorKind === "database"
+                            ? "Base inaccessible"
+                            : "Erreur d'exécution"}
                     </p>
-                    <p className="text-slate-300 mt-1 font-mono text-xs whitespace-pre-wrap">
+                    {errorHint && (
+                      <p className="text-slate-200 mt-1 text-[13px]">
+                        {errorHint}
+                      </p>
+                    )}
+                    <p className="text-slate-400 mt-2 font-mono text-[11px] whitespace-pre-wrap">
                       {error}
                     </p>
                   </div>

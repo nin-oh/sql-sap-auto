@@ -17,6 +17,8 @@ type AppState = {
   columns: ColumnMeta[];
   running: boolean;
   error: string | null;
+  errorHint: string | null;
+  errorKind: string | null;
   durationMs: number | null;
   view: View;
   templates: Template[];
@@ -45,6 +47,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   columns: [],
   running: false,
   error: null,
+  errorHint: null,
+  errorKind: null,
   durationMs: null,
   view: "results",
   templates: [],
@@ -93,6 +97,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       rows: [],
       columns: [],
       error: null,
+      errorHint: null,
+      errorKind: null,
       durationMs: null,
     });
   },
@@ -142,7 +148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   runQuery: async () => {
     const { sql, variables, values } = get();
     if (!sql.trim()) return;
-    set({ running: true, error: null });
+    set({ running: true, error: null, errorHint: null, errorKind: null });
     const params: Record<string, unknown> = {};
     for (const v of variables) {
       const raw = values[v.name] ?? v.default ?? "";
@@ -161,6 +167,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         rows: result.rows,
         columns: result.columns,
         error: null,
+        errorHint: null,
+        errorKind: null,
         durationMs,
         running: false,
       });
@@ -169,6 +177,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         rows: [],
         columns: [],
         error: result.error,
+        errorHint: result.hint ?? null,
+        errorKind: result.kind ?? null,
         durationMs,
         running: false,
       });

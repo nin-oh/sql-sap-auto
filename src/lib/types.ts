@@ -13,6 +13,8 @@ export type ColumnMeta = {
   type: "number" | "date" | "boolean" | "string";
 };
 
+export type ErrorKind = "network" | "auth" | "database" | "query" | "unknown";
+
 export type QueryResult =
   | {
       success: true;
@@ -20,7 +22,13 @@ export type QueryResult =
       columns: ColumnMeta[];
       entry?: HistoryEntry;
     }
-  | { success: false; error: string; entry?: HistoryEntry };
+  | {
+      success: false;
+      error: string;
+      hint?: string;
+      kind?: ErrorKind;
+      entry?: HistoryEntry;
+    };
 
 export type HistoryEntry = {
   id: string;
@@ -58,7 +66,13 @@ declare global {
       saveConnection: (cfg: ConnectionConfig) => Promise<boolean>;
       testConnection: (
         cfg: ConnectionConfig,
-      ) => Promise<{ success: boolean; error?: string; version?: string }>;
+      ) => Promise<{
+        success: boolean;
+        error?: string;
+        hint?: string;
+        kind?: ErrorKind;
+        version?: string;
+      }>;
       runQuery: (
         sql: string,
         params: Record<string, unknown>,

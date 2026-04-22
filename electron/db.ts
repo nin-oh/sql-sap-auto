@@ -53,6 +53,87 @@ function coerce(value: unknown): unknown {
   return value;
 }
 
+// Translate :paramName -> @paramName for SQL Server, while preserving strings,
+// -- line comments, /* ... */ comments, and "quoted"/[bracketed] identifiers.
+function rewritePlaceholders(text: string): string {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === "'") {
+      out += ch;
+      i++;
+      while (i < n) {
+        out += text[i];
+        if (text[i] === "'") {
+          if (text[i + 1] === "'") {
+            out += "'";
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "[") {
+      const closing = ch === '"' ? '"' : "]";
+      out += ch;
+      i++;
+      while (i < n) {
+        out += text[i];
+        if (text[i] === closing) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === "-" && text[i + 1] === "-") {
+      while (i < n && text[i] !== "\n") {
+        out += text[i];
+        i++;
+      }
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      out += "/*";
+      i += 2;
+      while (i < n) {
+        if (text[i] === "*" && text[i + 1] === "/") {
+          out += "*/";
+          i += 2;
+          break;
+        }
+        out += text[i];
+        i++;
+      }
+      continue;
+    }
+    if (ch === ":") {
+      const prev = i > 0 ? text[i - 1] : "";
+      if (/[:@\w]/.test(prev)) {
+        out += ch;
+        i++;
+        continue;
+      }
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(text.slice(i + 1));
+      if (m) {
+        out += "@" + m[1];
+        i += 1 + m[1].length;
+        continue;
+      }
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 type ErrorKind = "network" | "auth" | "database" | "query" | "unknown";
 
 function classifyError(e: unknown): { kind: ErrorKind; hint?: string } {
@@ -135,7 +216,7 @@ export async function runQuery(
       const value = coerce(rawValue);
       request.input(key, inferType(value), value as never);
     }
-    const result = await request.query(text);
+    const result = await request.query(rewritePlaceholders(text));
     const recordset = result.recordset ?? [];
     const columns: ColumnMeta[] = extractColumns(result, recordset);
     return {

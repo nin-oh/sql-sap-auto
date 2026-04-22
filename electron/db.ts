@@ -293,3 +293,106 @@ export async function listTables(cfg: ConnectionConfig) {
     {},
   );
 }
+
+type StreamHandlers = {
+  onColumns: (cols: ColumnMeta[]) => void;
+  onBatch: (rows: Record<string, unknown>[], totalSoFar: number) => void;
+  onError: (error: string, hint?: string, kind?: ErrorKind) => void;
+  onDone: (totalRows: number) => void;
+};
+
+export function runStreamingQuery(
+  cfg: ConnectionConfig,
+  text: string,
+  params: Record<string, unknown>,
+  handlers: StreamHandlers,
+): { cancel: () => void } {
+  let pool: sql.ConnectionPool | null = null;
+  let request: sql.Request | null = null;
+  let canceled = false;
+  let finished = false;
+  let buffer: Record<string, unknown>[] = [];
+  let total = 0;
+  const BATCH = 2000;
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    const out = buffer;
+    buffer = [];
+    handlers.onBatch(out, total);
+  };
+
+  const cleanup = () => {
+    if (pool) pool.close().catch(() => undefined);
+    pool = null;
+    request = null;
+  };
+
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    flush();
+    handlers.onDone(total);
+    cleanup();
+  };
+
+  const fail = (err: unknown) => {
+    if (finished) return;
+    finished = true;
+    const msg = (err as Error)?.message ?? String(err);
+    const c = classifyError(err);
+    handlers.onError(msg, c.hint, c.kind);
+    cleanup();
+  };
+
+  (async () => {
+    try {
+      pool = await new sql.ConnectionPool(buildConfig(cfg)).connect();
+      if (canceled) {
+        cleanup();
+        handlers.onDone(0);
+        return;
+      }
+      request = pool.request();
+      request.stream = true;
+      for (const [key, rawValue] of Object.entries(params)) {
+        const value = coerce(rawValue);
+        request.input(key, inferType(value), value as never);
+      }
+      request.on("recordset", (cols) => {
+        const columns = convertColumns(cols as Record<string, { type?: { name?: string } }>);
+        handlers.onColumns(columns);
+      });
+      request.on("row", (row) => {
+        buffer.push(row as Record<string, unknown>);
+        total++;
+        if (buffer.length >= BATCH) flush();
+      });
+      request.on("error", (err) => fail(err));
+      request.on("done", () => finish());
+      request.query(rewritePlaceholders(text));
+    } catch (e) {
+      fail(e);
+    }
+  })();
+
+  return {
+    cancel: () => {
+      canceled = true;
+      try {
+        request?.cancel();
+      } catch {
+        /* ignore */
+      }
+    },
+  };
+}
+
+function convertColumns(
+  metadata: Record<string, { type?: { name?: string } }>,
+): ColumnMeta[] {
+  return Object.keys(metadata).map((name) => ({
+    name,
+    type: mapMssqlType(metadata[name]?.type?.name ?? ""),
+  }));
+}

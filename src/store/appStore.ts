@@ -21,6 +21,14 @@ const queryCache = new Map<
 const cacheKey = (sql: string, params: Record<string, unknown>) =>
   JSON.stringify({ sql: sql.trim(), params });
 
+const optionsCache = new Map<
+  string,
+  { at: number; options: Array<{ value: string | number; label?: string }> }
+>();
+const OPTIONS_TTL_MS = 5 * 60 * 1000;
+
+let currentStreamHandle: { cancel: () => void } | null = null;
+
 type AppState = {
   sql: string;
   variables: Variable[];
@@ -46,6 +54,17 @@ type AppState = {
   demoMode: boolean;
   paletteOpen: boolean;
   shortcutsOpen: boolean;
+  streamingProgress: number;
+  variableOptions: Record<
+    string,
+    { loading: boolean; options: Array<{ value: string | number; label?: string }>; error?: string }
+  >;
+  cancelQuery: () => void;
+  fetchVariableOptions: (
+    name: string,
+    sql: string,
+    force?: boolean,
+  ) => Promise<void>;
 
   setSql: (sql: string) => void;
   setValue: (name: string, value: string) => void;
@@ -99,6 +118,80 @@ export const useAppStore = create<AppState>((set, get) => ({
   demoMode: false,
   paletteOpen: false,
   shortcutsOpen: false,
+  streamingProgress: 0,
+  variableOptions: {},
+
+  cancelQuery: () => {
+    if (currentStreamHandle) {
+      currentStreamHandle.cancel();
+      currentStreamHandle = null;
+    }
+  },
+
+  fetchVariableOptions: async (name, sql, force) => {
+    const existing = get().variableOptions[name];
+    const cached = optionsCache.get(sql);
+    if (
+      !force &&
+      cached &&
+      Date.now() - cached.at < OPTIONS_TTL_MS
+    ) {
+      set((s) => ({
+        variableOptions: {
+          ...s.variableOptions,
+          [name]: { loading: false, options: cached.options },
+        },
+      }));
+      return;
+    }
+    if (existing?.loading) return;
+    set((s) => ({
+      variableOptions: {
+        ...s.variableOptions,
+        [name]: { loading: true, options: existing?.options ?? [] },
+      },
+    }));
+    try {
+      const r = await window.sap.fetchOptions(sql);
+      if (r.success) {
+        const options = r.rows.map((row) => {
+          const keys = Object.keys(row);
+          const valueKey =
+            keys.find((k) => k.toLowerCase() === "value") ?? keys[0];
+          const labelKey =
+            keys.find((k) => k.toLowerCase() === "label") ?? keys[1] ?? valueKey;
+          const value = row[valueKey] as string | number;
+          const label = labelKey ? String(row[labelKey] ?? value) : String(value);
+          return { value, label };
+        });
+        optionsCache.set(sql, { at: Date.now(), options });
+        set((s) => ({
+          variableOptions: {
+            ...s.variableOptions,
+            [name]: { loading: false, options },
+          },
+        }));
+      } else {
+        set((s) => ({
+          variableOptions: {
+            ...s.variableOptions,
+            [name]: { loading: false, options: [], error: r.error },
+          },
+        }));
+      }
+    } catch (e) {
+      set((s) => ({
+        variableOptions: {
+          ...s.variableOptions,
+          [name]: {
+            loading: false,
+            options: [],
+            error: (e as Error).message,
+          },
+        },
+      }));
+    }
+  },
 
   setSql: (sql) => {
     const variables = mergeVariables(sql, get().variables);
@@ -235,10 +328,69 @@ export const useAppStore = create<AppState>((set, get) => ({
           running: false,
           cacheHit: true,
           cacheAge: Math.max(1, Math.round((Date.now() - cached.at) / 1000)),
+          streamingProgress: 0,
         });
         return;
       }
     }
+
+    for (const v of variables) {
+      const val = values[v.name];
+      if (val != null && String(val).trim() !== "")
+        rememberValue(v.name, String(val));
+    }
+
+    // Demo mode: synchronous local data generator.
+    if (demoMode) {
+      set({
+        running: true,
+        error: null,
+        errorHint: null,
+        errorKind: null,
+        cacheHit: false,
+        cacheAge: null,
+        streamingProgress: 0,
+      });
+      const started = Date.now();
+      const result = runDemoQuery(sql, params);
+      const durationMs = Date.now() - started;
+      if (result.success) {
+        queryCache.set(key, {
+          rows: result.rows,
+          columns: result.columns,
+          at: Date.now(),
+        });
+        set({
+          rows: result.rows,
+          columns: result.columns,
+          error: null,
+          errorHint: null,
+          errorKind: null,
+          durationMs,
+          running: false,
+          streamingProgress: result.rows.length,
+        });
+      } else {
+        set({
+          rows: [],
+          columns: [],
+          error: result.error,
+          errorHint: null,
+          errorKind: null,
+          durationMs,
+          running: false,
+          streamingProgress: 0,
+        });
+      }
+      return;
+    }
+
+    // Live streaming path.
+    if (currentStreamHandle) {
+      currentStreamHandle.cancel();
+      currentStreamHandle = null;
+    }
+
     set({
       running: true,
       error: null,
@@ -246,44 +398,65 @@ export const useAppStore = create<AppState>((set, get) => ({
       errorKind: null,
       cacheHit: false,
       cacheAge: null,
+      streamingProgress: 0,
+      rows: [],
+      columns: [],
     });
+
     const started = Date.now();
-    const result = demoMode
-      ? runDemoQuery(sql, params)
-      : await window.sap.runQuery(sql, params);
-    const durationMs = Date.now() - started;
-    if (result.success) {
-      queryCache.set(key, {
-        rows: result.rows,
-        columns: result.columns,
-        at: Date.now(),
+    const accumulator: Record<string, unknown>[] = [];
+
+    await new Promise<void>((resolve) => {
+      const handle = window.sap.streamQuery(sql, params, {
+        onColumns: (columns) => {
+          set({ columns: columns as ColumnMeta[] });
+        },
+        onBatch: (rows, totalSoFar) => {
+          for (const r of rows as Record<string, unknown>[]) {
+            accumulator.push(r);
+          }
+          set({
+            rows: accumulator.slice(),
+            streamingProgress: totalSoFar,
+          });
+        },
+        onDone: (payload) => {
+          currentStreamHandle = null;
+          if (payload.success) {
+            const finalRows = accumulator.slice();
+            queryCache.set(key, {
+              rows: finalRows,
+              columns: get().columns,
+              at: Date.now(),
+            });
+            set({
+              rows: finalRows,
+              error: null,
+              errorHint: null,
+              errorKind: null,
+              durationMs: payload.durationMs ?? Date.now() - started,
+              running: false,
+              streamingProgress: payload.totalRows ?? accumulator.length,
+            });
+          } else {
+            set({
+              rows: [],
+              columns: [],
+              error: payload.error ?? "Erreur inconnue",
+              errorHint: payload.hint ?? null,
+              errorKind: (payload.kind as AppState["errorKind"]) ?? null,
+              durationMs: Date.now() - started,
+              running: false,
+              streamingProgress: 0,
+            });
+          }
+          resolve();
+        },
       });
-      for (const v of variables) {
-        const val = values[v.name];
-        if (val != null && String(val).trim() !== "")
-          rememberValue(v.name, String(val));
-      }
-      set({
-        rows: result.rows,
-        columns: result.columns,
-        error: null,
-        errorHint: null,
-        errorKind: null,
-        durationMs,
-        running: false,
-      });
-    } else {
-      set({
-        rows: [],
-        columns: [],
-        error: result.error,
-        errorHint: result.hint ?? null,
-        errorKind: result.kind ?? null,
-        durationMs,
-        running: false,
-      });
-    }
-    if (!demoMode) await get().reloadHistory();
+      currentStreamHandle = handle;
+    });
+
+    await get().reloadHistory();
   },
 
   reloadSnapshots: async () => {

@@ -8,7 +8,12 @@ import {
 } from "electron";
 import path from "node:path";
 import fs from "node:fs";
-import { runQuery, testConnection, listTables } from "./db";
+import {
+  runQuery,
+  testConnection,
+  listTables,
+  runStreamingQuery,
+} from "./db";
 import { exportExcel, type ExcelExportItem } from "./excel";
 
 type ConnectionConfig = {
@@ -43,6 +48,7 @@ type Template = {
     type: "text" | "number" | "date" | "select";
     default?: string | number;
     options?: string[];
+    optionsQuery?: string;
     hint?: string;
   }>;
   createdAt: number;
@@ -181,15 +187,19 @@ ORDER BY s.Dte`,
         {
           name: "SlpCode",
           label: "Code vendeur",
-          type: "number",
+          type: "select",
           default: 1,
+          optionsQuery:
+            "SELECT SlpCode AS value, SlpName AS label FROM OSLP WHERE SlpCode > 0 ORDER BY SlpName",
           hint: "Identifiant numérique du vendeur (SlpCode).",
         },
         {
           name: "Entrepot",
           label: "Entrepôt",
-          type: "text",
+          type: "select",
           default: "*",
+          optionsQuery:
+            "SELECT WhsCode AS value, COALESCE(WhsName, WhsCode) AS label FROM OWHS WHERE Inactive = 'N' ORDER BY WhsCode",
           hint: "Code d'entrepôt. Utilisez * pour tous. Les jokers % sont acceptés (ex: 01%).",
         },
         {
@@ -303,6 +313,85 @@ ipcMain.handle("query:tables", async () => {
   if (!cfg) return { success: false, error: "No connection configured." };
   return listTables(cfg);
 });
+
+const activeJobs = new Map<string, { cancel: () => void }>();
+
+ipcMain.on(
+  "query:start",
+  (
+    event,
+    args: { jobId: string; sql: string; params: Record<string, unknown> },
+  ) => {
+    const cfg = loadConnection();
+    const { jobId } = args;
+    const send = (channel: string, payload: unknown) => {
+      if (!event.sender.isDestroyed()) event.sender.send(channel, payload);
+    };
+    if (!cfg) {
+      send(`query:done:${jobId}`, {
+        success: false,
+        error: "No connection configured.",
+      });
+      return;
+    }
+    const started = Date.now();
+    const historySql = args.sql;
+    const historyParams = args.params;
+    const handle = runStreamingQuery(cfg, args.sql, args.params, {
+      onColumns: (columns) => send(`query:meta:${jobId}`, { columns }),
+      onBatch: (rows, totalSoFar) =>
+        send(`query:batch:${jobId}`, { rows, totalSoFar }),
+      onError: (error, hint, kind) => {
+        const entry: HistoryEntry = {
+          id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          timestamp: started,
+          sql: historySql,
+          params: historyParams,
+          durationMs: Date.now() - started,
+          rowCount: 0,
+          success: false,
+          error,
+        };
+        pushHistory(entry);
+        send(`query:done:${jobId}`, { success: false, error, hint, kind });
+        activeJobs.delete(jobId);
+      },
+      onDone: (totalRows) => {
+        const entry: HistoryEntry = {
+          id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          timestamp: started,
+          sql: historySql,
+          params: historyParams,
+          durationMs: Date.now() - started,
+          rowCount: totalRows,
+          success: true,
+        };
+        pushHistory(entry);
+        send(`query:done:${jobId}`, {
+          success: true,
+          totalRows,
+          durationMs: Date.now() - started,
+        });
+        activeJobs.delete(jobId);
+      },
+    });
+    activeJobs.set(jobId, handle);
+  },
+);
+
+ipcMain.on("query:cancel", (_e, args: { jobId: string }) => {
+  const h = activeJobs.get(args.jobId);
+  if (h) h.cancel();
+});
+
+ipcMain.handle(
+  "options:fetch",
+  async (_e, args: { sql: string }) => {
+    const cfg = loadConnection();
+    if (!cfg) return { success: false, error: "No connection configured." };
+    return runQuery(cfg, args.sql, {});
+  },
+);
 
 ipcMain.handle("history:list", async () => loadHistory());
 ipcMain.handle("history:clear", async () => {

@@ -1,12 +1,14 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useAppStore } from "../store/appStore";
 import { Input } from "./ui/Input";
+import { Combobox } from "./ui/Combobox";
 import {
   Wand2,
   Info,
   Hash,
   Calendar,
   Type as TypeIcon,
+  List,
   History,
 } from "lucide-react";
 import { getHistory } from "../lib/valueHistory";
@@ -15,7 +17,7 @@ const typeIcons = {
   number: Hash,
   date: Calendar,
   text: TypeIcon,
-  select: TypeIcon,
+  select: List,
 } as const;
 
 export function VariablePanel() {
@@ -23,8 +25,19 @@ export function VariablePanel() {
   const values = useAppStore((s) => s.values);
   const setValue = useAppStore((s) => s.setValue);
   const history = useAppStore((s) => s.history);
+  const variableOptions = useAppStore((s) => s.variableOptions);
+  const fetchVariableOptions = useAppStore((s) => s.fetchVariableOptions);
+  const demoMode = useAppStore((s) => s.demoMode);
 
-  // Values seen in past runs (template params) merged with local history.
+  useEffect(() => {
+    if (demoMode) return;
+    for (const v of variables) {
+      if (v.optionsQuery && !variableOptions[v.name]) {
+        void fetchVariableOptions(v.name, v.optionsQuery);
+      }
+    }
+  }, [variables, variableOptions, fetchVariableOptions, demoMode]);
+
   const fromRuns = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const entry of history) {
@@ -56,6 +69,9 @@ export function VariablePanel() {
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
       {variables.map((v) => {
         const Icon = typeIcons[v.type] ?? TypeIcon;
+        const hasOptionsQuery = Boolean(v.optionsQuery);
+        const optState = variableOptions[v.name];
+        const options = optState?.options ?? [];
         const listId = `vhist-${v.name}`;
         const localHistory = getHistory(v.name);
         const fromHistory = fromRuns.get(v.name) ?? new Set<string>();
@@ -68,7 +84,7 @@ export function VariablePanel() {
         ).slice(0, 8);
 
         return (
-          <label key={v.name} className="block group">
+          <div key={v.name} className="block group">
             <div className="flex items-center gap-1.5 mb-1.5">
               <div className="size-5 rounded-md bg-accent/10 flex items-center justify-center text-accent-glow">
                 <Icon className="size-3" />
@@ -87,51 +103,81 @@ export function VariablePanel() {
                   </span>
                 </span>
               )}
-            </div>
-            <div className="relative">
-              <Input
-                list={listId}
-                type={
-                  v.type === "date"
-                    ? "date"
-                    : v.type === "number"
-                      ? "number"
-                      : "text"
-                }
-                value={values[v.name] ?? ""}
-                placeholder={v.default != null ? String(v.default) : ""}
-                onChange={(e) => setValue(v.name, e.target.value)}
-                className="group-hover:border-accent/30 focus:border-accent/50 transition"
-              />
-              {suggestions.length > 0 && (
-                <datalist id={listId}>
-                  {suggestions.map((s) => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
+              {hasOptionsQuery && !optState?.loading && options.length === 0 && (
+                <button
+                  onClick={() =>
+                    void fetchVariableOptions(v.name, v.optionsQuery!, true)
+                  }
+                  className="ml-auto text-[10px] text-accent-glow hover:text-white transition"
+                  title="Recharger les options depuis la base"
+                >
+                  Charger
+                </button>
               )}
             </div>
-            {suggestions.length > 0 && v.type !== "date" && (
-              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                <History className="size-2.5 text-muted" />
-                {suggestions.slice(0, 5).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setValue(v.name, s)}
-                    className={`text-[10px] px-1.5 py-0.5 rounded border transition truncate max-w-[90px] ${
-                      (values[v.name] ?? "") === s
-                        ? "bg-accent/20 text-accent-glow border-accent/40"
-                        : "bg-white/[0.03] text-slate-300 border-border hover:border-accent/30 hover:text-accent-glow"
-                    }`}
-                    title={s}
-                  >
-                    {s}
-                  </button>
-                ))}
+            {hasOptionsQuery && !demoMode && !optState?.error ? (
+              <Combobox
+                value={values[v.name] ?? ""}
+                onChange={(val) => setValue(v.name, val)}
+                options={options}
+                loading={optState?.loading}
+                allowAll={
+                  v.default === "*" || String(values[v.name]) === "*"
+                }
+              />
+            ) : (
+              <div className="relative">
+                <Input
+                  list={listId}
+                  type={
+                    v.type === "date"
+                      ? "date"
+                      : v.type === "number"
+                        ? "number"
+                        : "text"
+                  }
+                  value={values[v.name] ?? ""}
+                  placeholder={v.default != null ? String(v.default) : ""}
+                  onChange={(e) => setValue(v.name, e.target.value)}
+                  className="group-hover:border-accent/30 focus:border-accent/50 transition"
+                />
+                {suggestions.length > 0 && (
+                  <datalist id={listId}>
+                    {suggestions.map((s) => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                )}
               </div>
             )}
-          </label>
+            {optState?.error && (
+              <p className="text-[10px] text-danger mt-1">
+                Impossible de charger les options : {optState.error}
+              </p>
+            )}
+            {(!hasOptionsQuery || optState?.error) &&
+              suggestions.length > 0 &&
+              v.type !== "date" && (
+                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                  <History className="size-2.5 text-muted" />
+                  {suggestions.slice(0, 5).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setValue(v.name, s)}
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition truncate max-w-[90px] ${
+                        (values[v.name] ?? "") === s
+                          ? "bg-accent/20 text-accent-glow border-accent/40"
+                          : "bg-white/[0.03] text-slate-300 border-border hover:border-accent/30 hover:text-accent-glow"
+                      }`}
+                      title={s}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+          </div>
         );
       })}
     </div>

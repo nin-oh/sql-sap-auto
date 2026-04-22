@@ -17,6 +17,7 @@ import {
   Minimize2,
   Rows3,
   Command,
+  Square,
   X,
 } from "lucide-react";
 import { Button } from "./components/ui/Button";
@@ -71,6 +72,8 @@ export default function App() {
   const loadTemplate = useAppStore((s) => s.loadTemplate);
   const setPaletteOpen = useAppStore((s) => s.setPaletteOpen);
   const setShortcutsOpen = useAppStore((s) => s.setShortcutsOpen);
+  const streamingProgress = useAppStore((s) => s.streamingProgress);
+  const cancelQuery = useAppStore((s) => s.cancelQuery);
 
   const [connOpen, setConnOpen] = useState(false);
   const [hasConnection, setHasConnection] = useState<boolean | null>(null);
@@ -209,22 +212,33 @@ export default function App() {
                 <Badge tone="accent">SQL Server</Badge>
               </div>
               <div className="flex items-center gap-2">
+                {running && streamingProgress > 0 && (
+                  <span className="text-[11px] text-accent-glow tabular-nums font-mono">
+                    {streamingProgress.toLocaleString()} lignes…
+                  </span>
+                )}
                 <span className="hidden md:flex items-center gap-1 text-[11px] text-muted">
                   <Keyboard className="size-3" />
                   Ctrl/Cmd + Enter
                 </span>
-                <Button
-                  variant="primary"
-                  onClick={() => void runQuery()}
-                  disabled={running}
-                >
-                  {running ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
+                {running ? (
+                  <Button
+                    variant="secondary"
+                    onClick={cancelQuery}
+                    className="border-danger/40 text-danger hover:bg-danger/10"
+                  >
+                    <Square className="size-3.5 fill-current" />
+                    Annuler
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    onClick={() => void runQuery()}
+                  >
                     <Play className="size-3.5" />
-                  )}
-                  Exécuter
-                </Button>
+                    Exécuter
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardBody className="p-0">

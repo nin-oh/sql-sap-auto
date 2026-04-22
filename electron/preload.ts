@@ -9,6 +9,65 @@ const api = {
     ipcRenderer.invoke("query:run", { sql, params }),
   listTables: () => ipcRenderer.invoke("query:tables"),
 
+  streamQuery: (
+    sql: string,
+    params: Record<string, unknown>,
+    handlers: {
+      onColumns?: (columns: unknown[]) => void;
+      onBatch?: (rows: unknown[], totalSoFar: number) => void;
+      onDone?: (payload: {
+        success: boolean;
+        totalRows?: number;
+        durationMs?: number;
+        error?: string;
+        hint?: string;
+        kind?: string;
+      }) => void;
+    },
+  ) => {
+    const jobId = `j_${Date.now().toString(36)}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const metaCh = `query:meta:${jobId}`;
+    const batchCh = `query:batch:${jobId}`;
+    const doneCh = `query:done:${jobId}`;
+    const onMeta = (_e: unknown, payload: { columns: unknown[] }) => {
+      handlers.onColumns?.(payload.columns);
+    };
+    const onBatch = (
+      _e: unknown,
+      payload: { rows: unknown[]; totalSoFar: number },
+    ) => {
+      handlers.onBatch?.(payload.rows, payload.totalSoFar);
+    };
+    const onDone = (
+      _e: unknown,
+      payload: {
+        success: boolean;
+        totalRows?: number;
+        durationMs?: number;
+        error?: string;
+        hint?: string;
+        kind?: string;
+      },
+    ) => {
+      handlers.onDone?.(payload);
+      ipcRenderer.removeListener(metaCh, onMeta);
+      ipcRenderer.removeListener(batchCh, onBatch);
+      ipcRenderer.removeListener(doneCh, onDone);
+    };
+    ipcRenderer.on(metaCh, onMeta);
+    ipcRenderer.on(batchCh, onBatch);
+    ipcRenderer.on(doneCh, onDone);
+    ipcRenderer.send("query:start", { jobId, sql, params });
+    return {
+      cancel: () => ipcRenderer.send("query:cancel", { jobId }),
+    };
+  },
+
+  fetchOptions: (sql: string) =>
+    ipcRenderer.invoke("options:fetch", { sql }),
+
   listHistory: () => ipcRenderer.invoke("history:list"),
   clearHistory: () => ipcRenderer.invoke("history:clear"),
 

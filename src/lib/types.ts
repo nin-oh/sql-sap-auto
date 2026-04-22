@@ -41,12 +41,15 @@ export type HistoryEntry = {
   error?: string;
 };
 
+export type VariableOption = { value: string | number; label?: string };
+
 export type Variable = {
   name: string;
   label: string;
   type: "text" | "number" | "date" | "select";
   default?: string | number;
   options?: string[];
+  optionsQuery?: string;
   hint?: string;
 };
 
@@ -90,6 +93,23 @@ declare global {
         params: Record<string, unknown>,
       ) => Promise<QueryResult>;
       listTables: () => Promise<QueryResult>;
+      streamQuery: (
+        sql: string,
+        params: Record<string, unknown>,
+        handlers: {
+          onColumns?: (columns: ColumnMeta[]) => void;
+          onBatch?: (rows: Record<string, unknown>[], totalSoFar: number) => void;
+          onDone?: (payload: {
+            success: boolean;
+            totalRows?: number;
+            durationMs?: number;
+            error?: string;
+            hint?: string;
+            kind?: ErrorKind;
+          }) => void;
+        },
+      ) => { cancel: () => void };
+      fetchOptions: (sql: string) => Promise<QueryResult>;
       listHistory: () => Promise<HistoryEntry[]>;
       clearHistory: () => Promise<boolean>;
       listTemplates: () => Promise<Template[]>;

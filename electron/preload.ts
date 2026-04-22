@@ -79,8 +79,8 @@ const api = {
   saveSnapshot: (snap: unknown) => ipcRenderer.invoke("snapshots:save", snap),
   deleteSnapshot: (id: string) => ipcRenderer.invoke("snapshots:delete", id),
 
-  exportWorkspace: (hint?: string) =>
-    ipcRenderer.invoke("workspace:export", hint),
+  exportWorkspace: (opts?: unknown) =>
+    ipcRenderer.invoke("workspace:export", opts),
   importWorkspace: (mode: "merge" | "replace" = "merge") =>
     ipcRenderer.invoke("workspace:import", { mode }),
 

@@ -89,7 +89,6 @@ type AppState = {
   saveCurrentAsSnapshot: (name: string, description?: string) => Promise<void>;
   loadSnapshot: (id: string) => void;
   deleteSnapshot: (id: string) => Promise<void>;
-  exportWorkspace: () => Promise<void>;
   importWorkspace: () => Promise<void>;
 };
 
@@ -518,13 +517,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       patch.columns = [];
     }
     set(patch);
-  },
-
-  exportWorkspace: async () => {
-    const r = await window.sap.exportWorkspace();
-    if (r.success && r.filePath) {
-      set({ importMessage: `Espace exporté : ${r.filePath}` });
-    }
   },
 
   importWorkspace: async () => {

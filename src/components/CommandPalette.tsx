@@ -66,7 +66,6 @@ export function CommandPalette() {
   const toggleDenseTable = useAppStore((s) => s.toggleDenseTable);
   const setView = useAppStore((s) => s.setView);
   const setShortcutsOpen = useAppStore((s) => s.setShortcutsOpen);
-  const exportWorkspace = useAppStore((s) => s.exportWorkspace);
   const importWorkspace = useAppStore((s) => s.importWorkspace);
 
   const [query, setQuery] = useState("");
@@ -113,11 +112,14 @@ export function CommandPalette() {
         },
       },
       {
-        id: "act:export-ws",
+        id: "act:share",
         group: "Actions",
-        label: "Exporter l'espace de travail (.sapwork)",
+        label: "Partager (créer un fichier .sapwork)",
         icon: Download,
-        run: () => void exportWorkspace(),
+        keywords: "share export workspace",
+        run: () => {
+          document.getElementById("btn-open-share")?.click();
+        },
       },
       {
         id: "act:import-ws",
@@ -227,7 +229,6 @@ export function CommandPalette() {
     toggleDenseTable,
     setView,
     setShortcutsOpen,
-    exportWorkspace,
     importWorkspace,
   ]);
 

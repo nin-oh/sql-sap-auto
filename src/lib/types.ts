@@ -118,13 +118,19 @@ declare global {
       listSnapshots: () => Promise<Snapshot[]>;
       saveSnapshot: (snap: Snapshot) => Promise<Snapshot[]>;
       deleteSnapshot: (id: string) => Promise<Snapshot[]>;
-      exportWorkspace: (
-        hint?: string,
-      ) => Promise<{
+      exportWorkspace: (opts?: {
+        hint?: string;
+        title?: string;
+        templateIds?: string[];
+        snapshotIds?: string[];
+        includeHistory?: boolean;
+        extraSnapshots?: Snapshot[];
+      }) => Promise<{
         success: boolean;
         filePath?: string;
         canceled?: boolean;
         error?: string;
+        counts?: { templates: number; snapshots: number; history: number };
       }>;
       importWorkspace: (
         mode?: "merge" | "replace",

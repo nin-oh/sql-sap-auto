@@ -432,28 +432,65 @@ ipcMain.handle("snapshots:delete", async (_e, id: string) => {
   return list;
 });
 
-ipcMain.handle("workspace:export", async (_e, hint?: string) => {
-  if (!mainWindow) return { success: false, error: "No window" };
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    title: "Exporter un espace de travail",
-    defaultPath: `sap-workspace-${new Date()
-      .toISOString()
-      .slice(0, 10)}.sapwork`,
-    filters: [{ name: "SAP Workspace", extensions: ["sapwork", "json"] }],
-  });
-  if (canceled || !filePath) return { success: false, canceled: true };
-  const payload: Workspace = {
-    kind: "sap-query-workspace",
-    version: 1,
-    exportedAt: Date.now(),
-    exportedBy: hint,
-    templates: loadTemplates(),
-    history: loadHistory(),
-    snapshots: loadSnapshots(),
-  };
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
-  return { success: true, filePath };
-});
+ipcMain.handle(
+  "workspace:export",
+  async (
+    _e,
+    opts?: {
+      hint?: string;
+      title?: string;
+      templateIds?: string[];
+      snapshotIds?: string[];
+      includeHistory?: boolean;
+      extraSnapshots?: Snapshot[];
+    },
+  ) => {
+    if (!mainWindow) return { success: false, error: "No window" };
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: "Exporter un espace de travail",
+      defaultPath: `${(opts?.title ?? "sap-workspace").replace(/[^a-z0-9_-]+/gi, "_")}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.sapwork`,
+      filters: [{ name: "SAP Workspace", extensions: ["sapwork", "json"] }],
+    });
+    if (canceled || !filePath) return { success: false, canceled: true };
+
+    const allTemplates = loadTemplates();
+    const allSnapshots = loadSnapshots();
+    const allHistory = loadHistory();
+
+    const pickedTemplates = opts?.templateIds
+      ? allTemplates.filter((t) => opts.templateIds!.includes(t.id))
+      : allTemplates;
+    const pickedSnapshots = opts?.snapshotIds
+      ? allSnapshots.filter((s) => opts.snapshotIds!.includes(s.id))
+      : allSnapshots;
+    const extraSnapshots = opts?.extraSnapshots ?? [];
+    const snapshots = [...pickedSnapshots, ...extraSnapshots];
+
+    const includeHistory = opts?.includeHistory ?? true;
+
+    const payload: Workspace = {
+      kind: "sap-query-workspace",
+      version: 1,
+      exportedAt: Date.now(),
+      exportedBy: opts?.hint,
+      templates: pickedTemplates,
+      history: includeHistory ? allHistory : [],
+      snapshots,
+    };
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+    return {
+      success: true,
+      filePath,
+      counts: {
+        templates: pickedTemplates.length,
+        snapshots: snapshots.length,
+        history: includeHistory ? allHistory.length : 0,
+      },
+    };
+  },
+);
 
 ipcMain.handle(
   "workspace:import",

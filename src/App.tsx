@@ -34,6 +34,7 @@ import { TemplatesPanel } from "./components/TemplatesPanel";
 import { SnapshotsPanel } from "./components/SnapshotsPanel";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ExcelExportDialog } from "./components/ExcelExportDialog";
+import { WorkspaceShareDialog } from "./components/WorkspaceShareDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { ShortcutsOverlay } from "./components/ShortcutsOverlay";
 import { SkeletonRows } from "./components/SkeletonRows";
@@ -56,7 +57,6 @@ export default function App() {
   const runQuery = useAppStore((s) => s.runQuery);
   const activeSnapshotId = useAppStore((s) => s.activeSnapshotId);
   const saveCurrentAsSnapshot = useAppStore((s) => s.saveCurrentAsSnapshot);
-  const exportWorkspace = useAppStore((s) => s.exportWorkspace);
   const importWorkspace = useAppStore((s) => s.importWorkspace);
   const importMessage = useAppStore((s) => s.importMessage);
   const clearImportMessage = useAppStore((s) => s.clearImportMessage);
@@ -84,6 +84,7 @@ export default function App() {
   const [snapName, setSnapName] = useState("");
   const [snapDesc, setSnapDesc] = useState("");
   const [excelOpen, setExcelOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     void initialize();
@@ -155,7 +156,7 @@ export default function App() {
       <Header
         onOpenSettings={() => setConnOpen(true)}
         hasConnection={hasConnection}
-        onExport={() => void exportWorkspace()}
+        onExport={() => setShareOpen(true)}
         onImport={() => void importWorkspace()}
         onOpenExcel={() => setExcelOpen(true)}
         setPaletteOpen={setPaletteOpen}
@@ -417,6 +418,11 @@ export default function App() {
         onClose={() => setExcelOpen(false)}
       />
 
+      <WorkspaceShareDialog
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+      />
+
       <CommandPalette />
       <ShortcutsOverlay />
 
@@ -554,10 +560,11 @@ function Header({
           Importer
         </Button>
         <Button
+          id="btn-open-share"
           variant="ghost"
           size="sm"
           onClick={onExport}
-          title="Exporter votre espace de travail (.sapwork)"
+          title="Partager un .sapwork avec les données"
         >
           <Download className="size-3.5" />
           Partager

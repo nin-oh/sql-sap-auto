@@ -282,7 +282,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
 
   if (allParams.size > 0) {
     const titleRow = paramsStartRow;
-    home.getCell(`B${titleRow}`).value = "PARAMÈTRES";
+    home.getCell(`B${titleRow}`).value = "FILTRES APPLIQUÉS · LECTURE SEULE";
     home.getCell(`B${titleRow}`).font = {
       bold: true,
       size: 13,
@@ -293,14 +293,14 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
     const hintRow = titleRow + 1;
     const hint = home.getCell(`B${hintRow}`);
     hint.value =
-      "Les cellules jaunes sont les valeurs utilisées au moment de l'export. Modifiez-les pour documenter un nouveau contexte — pour re-exécuter la requête avec d'autres paramètres, utilisez l'application.";
+      "Informations sur la requête qui a produit les tables ci-dessous. Ces valeurs ne modifient PAS le contenu du classeur — les feuilles sont figées au moment de l'export. Pour relancer la requête avec d'autres paramètres, utilisez l'application.";
     hint.font = { italic: true, size: 9.5, color: { argb: COLORS.mutedText } };
     hint.alignment = { wrapText: true, vertical: "top" };
     home.mergeCells(`B${hintRow}:F${hintRow}`);
-    home.getRow(hintRow).height = 32;
+    home.getRow(hintRow).height = 40;
 
     const pHead = hintRow + 2;
-    const pLabels = ["Variable", "Valeur", "Utilisée dans"];
+    const pLabels = ["Variable", "Valeur utilisée", "Utilisée dans"];
     const pCols = ["B", "C", "D"];
     pLabels.forEach((label, i) => {
       const cell = home.getCell(`${pCols[i]}${pHead}`);
@@ -317,7 +317,11 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
     home.getRow(pHead).height = 20;
 
     let pRow = pHead + 1;
+    let idx = 0;
     for (const [name, { value, usedIn }] of allParams) {
+      const band = idx % 2 === 0 ? "FFFFFFFF" : COLORS.accentSoft;
+      idx++;
+
       const nameCell = home.getCell(`B${pRow}`);
       nameCell.value = `:${name}`;
       nameCell.font = {
@@ -329,28 +333,36 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       nameCell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: COLORS.paramLabelBg },
+        fgColor: { argb: band },
       };
-      nameCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+      nameCell.alignment = {
+        vertical: "middle",
+        horizontal: "left",
+        indent: 1,
+      };
       nameCell.border = {
-        top: { style: "thin", color: { argb: COLORS.line } },
-        bottom: { style: "thin", color: { argb: COLORS.line } },
+        bottom: { style: "hair", color: { argb: COLORS.line } },
       };
 
       const valueCell = home.getCell(`C${pRow}`);
       valueCell.value = value as ExcelJS.CellValue;
-      valueCell.font = { size: 11, bold: true, color: { argb: COLORS.bodyText } };
-      valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+      valueCell.font = {
+        size: 11,
+        bold: true,
+        color: { argb: COLORS.bodyText },
+      };
+      valueCell.alignment = {
+        vertical: "middle",
+        horizontal: "left",
+        indent: 1,
+      };
       valueCell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: COLORS.paramBg },
+        fgColor: { argb: band },
       };
       valueCell.border = {
-        top: { style: "medium", color: { argb: COLORS.paramBorder } },
-        left: { style: "medium", color: { argb: COLORS.paramBorder } },
-        bottom: { style: "medium", color: { argb: COLORS.paramBorder } },
-        right: { style: "medium", color: { argb: COLORS.paramBorder } },
+        bottom: { style: "hair", color: { argb: COLORS.line } },
       };
 
       const useCell = home.getCell(`D${pRow}`);
@@ -362,9 +374,17 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
         indent: 1,
         wrapText: true,
       };
+      useCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: band },
+      };
+      useCell.border = {
+        bottom: { style: "hair", color: { argb: COLORS.line } },
+      };
       home.mergeCells(`D${pRow}:F${pRow}`);
 
-      home.getRow(pRow).height = 24;
+      home.getRow(pRow).height = 22;
       pRow++;
     }
   }

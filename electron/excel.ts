@@ -293,11 +293,11 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
     const hintRow = titleRow + 1;
     const hint = home.getCell(`B${hintRow}`);
     hint.value =
-      "Informations sur la requête qui a produit les tables ci-dessous. Ces valeurs ne modifient PAS le contenu du classeur — les feuilles sont figées au moment de l'export. Pour relancer la requête avec d'autres paramètres, utilisez l'application.";
+      "Informations sur la requête qui a produit les tables ci-dessous. Chaque paramètre est accessible depuis vos formules via un nom défini (p.ex. =Param_Entrepot). Pour filtrer / trier les données, utilisez les flèches des entêtes de colonnes — chaque feuille est une VRAIE table Excel : filtres, tris, total dynamique, références structurées (Table[Col]).";
     hint.font = { italic: true, size: 9.5, color: { argb: COLORS.mutedText } };
     hint.alignment = { wrapText: true, vertical: "top" };
     home.mergeCells(`B${hintRow}:F${hintRow}`);
-    home.getRow(hintRow).height = 40;
+    home.getRow(hintRow).height = 60;
 
     const pHead = hintRow + 2;
     const pLabels = ["Variable", "Valeur utilisée", "Utilisée dans"];
@@ -383,8 +383,18 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
         bottom: { style: "hair", color: { argb: COLORS.line } },
       };
       home.mergeCells(`D${pRow}:F${pRow}`);
-
       home.getRow(pRow).height = 22;
+
+      // Named cell so users can reference this parameter from any formula
+      // (e.g. =Param_Entrepot). Name must start with a letter and contain
+      // no spaces or special characters; we sanitize.
+      const safeName = `Param_${String(name).replace(/[^A-Za-z0-9_]/g, "_")}`;
+      try {
+        wb.definedNames.add(`Accueil!$C$${pRow}`, safeName);
+      } catch {
+        /* ignore name conflicts */
+      }
+
       pRow++;
     }
   }
@@ -559,8 +569,68 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       if (currentCol > colCount) return;
     });
 
-    // --- HEADER ROW (row 4) ---
+    // --- REAL EXCEL TABLE (ListObject) from row 4 onward ---
+    // Gives users native column filter dropdowns, sort, a totals row with
+    // per-column aggregation switcher, and structured references (Table[Col]).
     const headerRowIdx = 4;
+    const dataStart = headerRowIdx + 1;
+    const dataEnd = dataStart + Math.max(0, item.rows.length - 1);
+    const hasTotals = item.rows.length > 0 && aggregatableIdxs.length > 0;
+    const formats = item.columns.map((c, i) => numFmtFor(c.type, samples[i]));
+
+    const tableData = item.rows.map((r) =>
+      item.columns.map(
+        (c) =>
+          coerceCellValue(r[c.name], c.type) as unknown as ExcelJS.CellValue,
+      ),
+    );
+
+    const aggSet = new Set(aggregatableIdxs);
+    const tableName = `tbl_${(idx + 1).toString().padStart(2, "0")}`;
+
+    let tableCreated = false;
+    try {
+      ws.addTable({
+        name: tableName,
+        displayName: tableName,
+        ref: `A${headerRowIdx}`,
+        headerRow: true,
+        totalsRow: hasTotals,
+        style: {
+          theme: "TableStyleLight1",
+          showRowStripes: true,
+          showFirstColumn: false,
+        },
+        columns: item.columns.map((col, i) => ({
+          name: col.name,
+          filterButton: true,
+          totalsRowLabel:
+            hasTotals && i === 0
+              ? `TOTAL (${item.rows.length.toLocaleString("fr-FR")} lignes)`
+              : undefined,
+          totalsRowFunction: aggSet.has(i) ? "sum" : "none",
+        })) as ExcelJS.TableColumnProperties[],
+        rows: tableData as unknown as unknown[][],
+      });
+      tableCreated = true;
+    } catch {
+      // Fallback: write rows manually + autoFilter so the export never fails.
+      for (let ri = 0; ri < item.rows.length; ri++) {
+        const rowRef = ws.getRow(dataStart + ri);
+        item.columns.forEach((col, ci) => {
+          rowRef.getCell(ci + 1).value = coerceCellValue(
+            item.rows[ri][col.name],
+            col.type,
+          ) as ExcelJS.CellValue;
+        });
+      }
+      ws.autoFilter = {
+        from: { row: headerRowIdx, column: 1 },
+        to: { row: Math.max(dataEnd, headerRowIdx), column: colCount },
+      };
+    }
+
+    // --- Header row styling (violet gradient, white bold) ---
     const headerRow = ws.getRow(headerRowIdx);
     headerRow.height = 26;
     item.columns.forEach((col, i) => {
@@ -592,92 +662,56 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       };
     });
 
-    // --- DATA ROWS ---
-    const formats = item.columns.map((c, i) => numFmtFor(c.type, samples[i]));
-
-    const dataStart = headerRowIdx + 1;
-    item.rows.forEach((r, ri) => {
-      const rowRef = ws.getRow(dataStart + ri);
+    // --- Data rows: numeric/date formats + alignment + bold first column ---
+    for (let r = dataStart; r <= dataEnd; r++) {
+      const rowRef = ws.getRow(r);
       rowRef.height = 18;
-      const bandFill = ri % 2 === 0 ? "FFFFFFFF" : COLORS.bandRow;
       item.columns.forEach((col, ci) => {
         const cell = rowRef.getCell(ci + 1);
-        cell.value = coerceCellValue(r[col.name], col.type) as ExcelJS.CellValue;
         cell.numFmt = formats[ci];
         cell.alignment = {
           vertical: "middle",
           horizontal: col.type === "number" ? "right" : "left",
           indent: 1,
         };
-        cell.font = { size: 10.5, color: { argb: COLORS.bodyText } };
+        cell.font = {
+          size: 10.5,
+          color: { argb: COLORS.bodyText },
+          bold: ci === 0,
+        };
+      });
+    }
+
+    // --- Totals row styling (dark accent bar) ---
+    if (hasTotals && tableCreated) {
+      const totalsRowIdx = dataEnd + 1;
+      const trow = ws.getRow(totalsRowIdx);
+      trow.height = 24;
+      item.columns.forEach((col, ci) => {
+        const cell = trow.getCell(ci + 1);
+        cell.font = {
+          bold: true,
+          color: { argb: COLORS.headerText },
+          size: 10.5,
+        };
         cell.fill = {
           type: "pattern",
           pattern: "solid",
-          fgColor: { argb: bandFill },
+          fgColor: { argb: COLORS.accentDark },
+        };
+        cell.alignment = {
+          vertical: "middle",
+          horizontal: col.type === "number" ? "right" : "left",
+          indent: 1,
         };
         cell.border = {
-          bottom: { style: "hair", color: { argb: COLORS.line } },
-          right:
-            ci === 0
-              ? { style: "thin", color: { argb: COLORS.accentLight } }
-              : undefined,
+          top: { style: "medium", color: { argb: COLORS.accent } },
         };
-        if (ci === 0) {
-          cell.font = {
-            size: 10.5,
-            color: { argb: COLORS.bodyText },
-            bold: true,
-          };
-        }
+        if (aggSet.has(ci)) cell.numFmt = formats[ci];
       });
-    });
+    }
 
-    const dataEnd = dataStart + item.rows.length - 1;
-
-    // --- TOTALS ROW ---
-    const totalsRowIdx = dataEnd + 1;
-    const totalsRow = ws.getRow(totalsRowIdx);
-    totalsRow.height = 24;
-    const aggSet = new Set(aggregatableIdxs);
-    item.columns.forEach((col, ci) => {
-      const cell = totalsRow.getCell(ci + 1);
-      if (ci === 0) {
-        cell.value = `TOTAL (${item.rows.length.toLocaleString("fr-FR")} lignes)`;
-        cell.font = {
-          bold: true,
-          color: { argb: COLORS.headerText },
-          size: 10.5,
-        };
-      } else if (aggSet.has(ci) && item.rows.length > 0) {
-        const colLetter = columnLetter(ci + 1);
-        cell.value = {
-          formula: `SUM(${colLetter}${dataStart}:${colLetter}${dataEnd})`,
-        } as ExcelJS.CellFormulaValue;
-        cell.numFmt = formats[ci];
-        cell.font = {
-          bold: true,
-          color: { argb: COLORS.headerText },
-          size: 10.5,
-        };
-      } else {
-        cell.font = { color: { argb: COLORS.headerText } };
-      }
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: COLORS.accentDark },
-      };
-      cell.alignment = {
-        vertical: "middle",
-        horizontal: col.type === "number" ? "right" : "left",
-        indent: 1,
-      };
-      cell.border = {
-        top: { style: "medium", color: { argb: COLORS.accent } },
-      };
-    });
-
-    // --- DATA BARS on aggregatable numeric columns only ---
+    // --- Data bars on aggregatable numeric columns only ---
     if (dataEnd >= dataStart) {
       for (const nIdx of aggregatableIdxs) {
         const colL = columnLetter(nIdx + 1);
@@ -689,10 +723,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
               {
                 type: "dataBar",
                 priority: 1,
-                cfvo: [
-                  { type: "min" },
-                  { type: "max" },
-                ],
+                cfvo: [{ type: "min" }, { type: "max" }],
                 color: { argb: "FFB9A5FF" },
                 gradient: true,
                 showValue: true,
@@ -704,12 +735,6 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
         }
       }
     }
-
-    // --- AUTO FILTER ---
-    ws.autoFilter = {
-      from: { row: headerRowIdx, column: 1 },
-      to: { row: totalsRowIdx - 1 >= headerRowIdx ? dataEnd : headerRowIdx, column: colCount },
-    };
 
     // --- COLUMN WIDTHS ---
     ws.columns.forEach((col, i) => {
@@ -732,7 +757,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
 
     // --- SQL NOTE ---
     if (item.sql) {
-      const noteRow = totalsRowIdx + 2;
+      const noteRow = dataEnd + (hasTotals ? 1 : 0) + 2;
       const sqlCell = ws.getCell(`A${noteRow}`);
       sqlCell.value = `Requête source: ${item.sql.replace(/\s+/g, " ").trim().slice(0, 500)}`;
       sqlCell.font = {

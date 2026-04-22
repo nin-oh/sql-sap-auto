@@ -16,6 +16,7 @@ import {
   Maximize2,
   Minimize2,
   Rows3,
+  Command,
   X,
 } from "lucide-react";
 import { Button } from "./components/ui/Button";
@@ -32,6 +33,9 @@ import { TemplatesPanel } from "./components/TemplatesPanel";
 import { SnapshotsPanel } from "./components/SnapshotsPanel";
 import { ConnectionDialog } from "./components/ConnectionDialog";
 import { ExcelExportDialog } from "./components/ExcelExportDialog";
+import { CommandPalette } from "./components/CommandPalette";
+import { ShortcutsOverlay } from "./components/ShortcutsOverlay";
+import { SkeletonRows } from "./components/SkeletonRows";
 import { Aurora } from "./components/Aurora";
 import { KpiStrip } from "./components/KpiStrip";
 import { EmptyState } from "./components/EmptyState";
@@ -59,6 +63,14 @@ export default function App() {
   const toggleMaximizedResults = useAppStore((s) => s.toggleMaximizedResults);
   const denseTable = useAppStore((s) => s.denseTable);
   const toggleDenseTable = useAppStore((s) => s.toggleDenseTable);
+  const columns = useAppStore((s) => s.columns);
+  const cacheHit = useAppStore((s) => s.cacheHit);
+  const cacheAge = useAppStore((s) => s.cacheAge);
+  const demoMode = useAppStore((s) => s.demoMode);
+  const templates = useAppStore((s) => s.templates);
+  const loadTemplate = useAppStore((s) => s.loadTemplate);
+  const setPaletteOpen = useAppStore((s) => s.setPaletteOpen);
+  const setShortcutsOpen = useAppStore((s) => s.setShortcutsOpen);
 
   const [connOpen, setConnOpen] = useState(false);
   const [hasConnection, setHasConnection] = useState<boolean | null>(null);
@@ -79,14 +91,60 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      const isMeta = e.ctrlKey || e.metaKey;
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      if (isMeta && e.key === "Enter") {
         e.preventDefault();
-        void runQuery();
+        void runQuery({ force: e.shiftKey });
+        return;
+      }
+      if (isMeta && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+      if (isMeta && (e.key === "m" || e.key === "M")) {
+        e.preventDefault();
+        toggleMaximizedResults();
+        return;
+      }
+      if (isMeta && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        toggleDenseTable();
+        return;
+      }
+      if (isMeta && /^[1-9]$/.test(e.key)) {
+        const idx = Number(e.key) - 1;
+        const tpl = templates[idx];
+        if (tpl) {
+          e.preventDefault();
+          loadTemplate(tpl.id);
+          setTimeout(() => void runQuery(), 40);
+        }
+        return;
+      }
+      if (!typing && e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen(true);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [runQuery]);
+  }, [
+    runQuery,
+    setPaletteOpen,
+    toggleMaximizedResults,
+    toggleDenseTable,
+    templates,
+    loadTemplate,
+    setShortcutsOpen,
+  ]);
 
   return (
     <div className="h-screen w-screen flex flex-col text-slate-100 relative">
@@ -97,6 +155,7 @@ export default function App() {
         onExport={() => void exportWorkspace()}
         onImport={() => void importWorkspace()}
         onOpenExcel={() => setExcelOpen(true)}
+        setPaletteOpen={setPaletteOpen}
       />
 
       <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr] gap-0 relative z-10">
@@ -215,14 +274,28 @@ export default function App() {
                     {rows.length.toLocaleString()} résultats
                   </Badge>
                 )}
-                {durationMs != null && <Badge>{durationMs} ms</Badge>}
+                {durationMs != null && !cacheHit && (
+                  <Badge>{durationMs} ms</Badge>
+                )}
+                {cacheHit && cacheAge != null && (
+                  <button
+                    onClick={() => void runQuery({ force: true })}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border bg-accent/10 text-accent-glow border-accent/30 hover:bg-accent/20 transition"
+                    title="Ce résultat vient du cache local. Cliquez pour forcer un rafraîchissement."
+                  >
+                    <span className="size-1.5 rounded-full bg-accent-glow animate-pulse" />
+                    Cache · {cacheAge}s · Actualiser
+                  </button>
+                )}
                 {activeSnapshotId && (
                   <Badge tone="accent">Capture · hors ligne</Badge>
                 )}
+                {demoMode && <Badge tone="warn">Mode démo</Badge>}
               </div>
               <div className="flex items-center gap-2">
                 {rows.length > 0 && !activeSnapshotId && (
                   <Button
+                    id="btn-open-snapshot"
                     variant="secondary"
                     size="sm"
                     onClick={() => setSnapOpen(true)}
@@ -305,6 +378,8 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+              ) : running && rows.length === 0 ? (
+                <SkeletonRows columns={columns} />
               ) : rows.length === 0 && !running ? (
                 <EmptyState />
               ) : view === "results" ? (
@@ -327,6 +402,9 @@ export default function App() {
         open={excelOpen}
         onClose={() => setExcelOpen(false)}
       />
+
+      <CommandPalette />
+      <ShortcutsOverlay />
 
       <Modal
         open={snapOpen}
@@ -409,12 +487,14 @@ function Header({
   onExport,
   onImport,
   onOpenExcel,
+  setPaletteOpen,
 }: {
   onOpenSettings: () => void;
   hasConnection: boolean | null;
   onExport: () => void;
   onImport: () => void;
   onOpenExcel: () => void;
+  setPaletteOpen: (open: boolean) => void;
 }) {
   return (
     <header className="titlebar-drag relative z-20 flex items-center justify-between px-5 h-12 border-b border-white/5 bg-bg-panel/60 backdrop-blur-xl">
@@ -469,6 +549,7 @@ function Header({
           Partager
         </Button>
         <Button
+          id="btn-open-excel"
           variant="secondary"
           size="sm"
           onClick={onOpenExcel}
@@ -478,7 +559,19 @@ function Header({
           <FileSpreadsheet className="size-3.5" />
           Excel
         </Button>
-        <Button variant="secondary" size="sm" onClick={onOpenSettings}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setPaletteOpen(true)}
+          title="Palette de commandes"
+          className="text-slate-200"
+        >
+          <Command className="size-3.5" />
+          <kbd className="text-[10px] text-muted border border-border rounded px-1 py-0.5 font-mono ml-0.5">
+            K
+          </kbd>
+        </Button>
+        <Button id="btn-open-connection" variant="secondary" size="sm" onClick={onOpenSettings}>
           <Settings className="size-3.5" />
           Connexion
         </Button>

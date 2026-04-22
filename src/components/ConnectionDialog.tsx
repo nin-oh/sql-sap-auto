@@ -9,8 +9,10 @@ import {
   AlertTriangle,
   Database,
   Wifi,
+  Sparkles,
 } from "lucide-react";
 import type { ConnectionConfig, ErrorKind } from "../lib/types";
+import { useAppStore } from "../store/appStore";
 
 const EMPTY: ConnectionConfig = {
   server: "192.168.1.240",
@@ -31,6 +33,10 @@ export function ConnectionDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const enableDemoMode = useAppStore((s) => s.enableDemoMode);
+  const loadTemplate = useAppStore((s) => s.loadTemplate);
+  const templates = useAppStore((s) => s.templates);
+  const runQuery = useAppStore((s) => s.runQuery);
   const [cfg, setCfg] = useState<ConnectionConfig>(EMPTY);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<
@@ -81,6 +87,24 @@ export function ConnectionDialog({
       width="max-w-xl"
       footer={
         <>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              enableDemoMode();
+              const tpl = templates.find((t) => /ventes|SLS_DET/i.test(t.name));
+              if (tpl) {
+                loadTemplate(tpl.id);
+                setTimeout(() => void runQuery(), 40);
+              }
+              onSaved();
+              onClose();
+            }}
+            className="mr-auto text-accent-glow"
+            title="Explorer l'app avec des données fictives"
+          >
+            <Sparkles className="size-3.5" />
+            Essayer en mode démo
+          </Button>
           <Button variant="ghost" onClick={onClose}>
             Annuler
           </Button>

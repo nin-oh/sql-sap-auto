@@ -7,8 +7,18 @@ import type {
   Variable,
 } from "../lib/types";
 import { mergeVariables } from "../lib/template";
+import { runDemoQuery } from "../lib/demo";
 
 type View = "results" | "chart";
+
+const CACHE_TTL_MS = 2 * 60 * 1000;
+const queryCache = new Map<
+  string,
+  { rows: Record<string, unknown>[]; columns: ColumnMeta[]; at: number }
+>();
+
+const cacheKey = (sql: string, params: Record<string, unknown>) =>
+  JSON.stringify({ sql: sql.trim(), params });
 
 type AppState = {
   sql: string;
@@ -30,6 +40,11 @@ type AppState = {
   importMessage: string | null;
   maximizedResults: boolean;
   denseTable: boolean;
+  cacheHit: boolean;
+  cacheAge: number | null;
+  demoMode: boolean;
+  paletteOpen: boolean;
+  shortcutsOpen: boolean;
 
   setSql: (sql: string) => void;
   setValue: (name: string, value: string) => void;
@@ -37,6 +52,9 @@ type AppState = {
   clearImportMessage: () => void;
   toggleMaximizedResults: () => void;
   toggleDenseTable: () => void;
+  setPaletteOpen: (open: boolean) => void;
+  setShortcutsOpen: (open: boolean) => void;
+  enableDemoMode: () => void;
 
   initialize: () => Promise<void>;
   loadTemplate: (id: string) => void;
@@ -45,7 +63,7 @@ type AppState = {
   reloadHistory: () => Promise<void>;
   clearHistory: () => Promise<void>;
   runFromHistory: (entry: HistoryEntry) => void;
-  runQuery: () => Promise<void>;
+  runQuery: (options?: { force?: boolean }) => Promise<void>;
 
   reloadSnapshots: () => Promise<void>;
   saveCurrentAsSnapshot: (name: string, description?: string) => Promise<void>;
@@ -75,6 +93,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   importMessage: null,
   maximizedResults: false,
   denseTable: false,
+  cacheHit: false,
+  cacheAge: null,
+  demoMode: false,
+  paletteOpen: false,
+  shortcutsOpen: false,
 
   setSql: (sql) => {
     const variables = mergeVariables(sql, get().variables);
@@ -97,6 +120,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({ maximizedResults: !s.maximizedResults })),
 
   toggleDenseTable: () => set((s) => ({ denseTable: !s.denseTable })),
+
+  setPaletteOpen: (open) => set({ paletteOpen: open }),
+  setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
+
+  enableDemoMode: () => {
+    set({ demoMode: true });
+  },
 
   initialize: async () => {
     const [templates, history, snapshots] = await Promise.all([
@@ -130,6 +160,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       errorHint: null,
       errorKind: null,
       durationMs: null,
+      cacheHit: false,
+      cacheAge: null,
     });
   },
 
@@ -175,10 +207,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ sql: entry.sql, variables, values });
   },
 
-  runQuery: async () => {
-    const { sql, variables, values } = get();
+  runQuery: async (options) => {
+    const { sql, variables, values, demoMode } = get();
     if (!sql.trim()) return;
-    set({ running: true, error: null, errorHint: null, errorKind: null });
     const params: Record<string, unknown> = {};
     for (const v of variables) {
       const raw = values[v.name] ?? v.default ?? "";
@@ -189,10 +220,43 @@ export const useAppStore = create<AppState>((set, get) => ({
             : 0
           : String(raw);
     }
+    const key = cacheKey(sql, params);
+    if (!options?.force) {
+      const cached = queryCache.get(key);
+      if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+        set({
+          rows: cached.rows,
+          columns: cached.columns,
+          error: null,
+          errorHint: null,
+          errorKind: null,
+          durationMs: 0,
+          running: false,
+          cacheHit: true,
+          cacheAge: Math.max(1, Math.round((Date.now() - cached.at) / 1000)),
+        });
+        return;
+      }
+    }
+    set({
+      running: true,
+      error: null,
+      errorHint: null,
+      errorKind: null,
+      cacheHit: false,
+      cacheAge: null,
+    });
     const started = Date.now();
-    const result = await window.sap.runQuery(sql, params);
+    const result = demoMode
+      ? runDemoQuery(sql, params)
+      : await window.sap.runQuery(sql, params);
     const durationMs = Date.now() - started;
     if (result.success) {
+      queryCache.set(key, {
+        rows: result.rows,
+        columns: result.columns,
+        at: Date.now(),
+      });
       set({
         rows: result.rows,
         columns: result.columns,
@@ -213,7 +277,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         running: false,
       });
     }
-    await get().reloadHistory();
+    if (!demoMode) await get().reloadHistory();
   },
 
   reloadSnapshots: async () => {

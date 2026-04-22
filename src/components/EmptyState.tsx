@@ -1,10 +1,15 @@
-import { Sparkles, Play, Camera, Upload } from "lucide-react";
+import { Sparkles, Play, Camera, Upload, Command } from "lucide-react";
 import { useAppStore } from "../store/appStore";
 
 export function EmptyState() {
   const runQuery = useAppStore((s) => s.runQuery);
   const importWorkspace = useAppStore((s) => s.importWorkspace);
   const snapshots = useAppStore((s) => s.snapshots);
+  const enableDemoMode = useAppStore((s) => s.enableDemoMode);
+  const templates = useAppStore((s) => s.templates);
+  const loadTemplate = useAppStore((s) => s.loadTemplate);
+  const demoMode = useAppStore((s) => s.demoMode);
+  const setPaletteOpen = useAppStore((s) => s.setPaletteOpen);
 
   return (
     <div className="flex-1 min-h-0 flex items-center justify-center p-6 animate-fadeIn">
@@ -23,7 +28,7 @@ export function EmptyState() {
           puis lancez l'exécution. Vos résultats seront affichés ici avec des
           tables interactives et des graphiques.
         </p>
-        <div className="mt-6 flex items-center justify-center gap-2">
+        <div className="mt-6 flex items-center justify-center gap-2 flex-wrap">
           <button
             onClick={() => void runQuery()}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-gradient text-white text-sm font-medium shadow-glow hover:brightness-110 transition"
@@ -31,6 +36,35 @@ export function EmptyState() {
             <Play className="size-3.5" />
             Exécuter
           </button>
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-elev border border-border text-slate-200 text-sm font-medium hover:border-border-soft transition"
+          >
+            <Command className="size-3.5" />
+            Palette
+            <kbd className="text-[10px] text-muted border border-border rounded px-1 py-0.5 font-mono ml-1">
+              ⌘K
+            </kbd>
+          </button>
+          {!demoMode && (
+            <button
+              onClick={() => {
+                enableDemoMode();
+                const tpl = templates.find((t) =>
+                  /ventes|SLS_DET/i.test(t.name),
+                );
+                if (tpl) {
+                  loadTemplate(tpl.id);
+                  setTimeout(() => void runQuery(), 40);
+                }
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-elev border border-accent/30 text-accent-glow text-sm font-medium hover:border-accent transition"
+              title="Explorer avec des données fictives, sans SQL"
+            >
+              <Sparkles className="size-3.5" />
+              Essayer en démo
+            </button>
+          )}
           {snapshots.length === 0 && (
             <button
               onClick={() => void importWorkspace()}

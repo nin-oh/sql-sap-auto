@@ -80,6 +80,23 @@ Import mode is "merge by id" — existing templates / snapshots with the same id
 are overwritten, everything else is kept. Swap to the replace mode in code if
 you want a clean wipe.
 
+## Power features
+
+- **Command palette** — `Ctrl/Cmd + K` opens a fuzzy-search palette over every
+  action, template, snapshot and recent history entry. `↑/↓` to move, `↵` to run.
+- **Keyboard shortcuts** — `Ctrl/Cmd + Enter` runs, `Ctrl/Cmd + Shift + Enter`
+  bypasses the cache, `Ctrl/Cmd + 1..9` loads the Nth template, `Ctrl/Cmd + M`
+  toggles full-screen, `Ctrl/Cmd + D` toggles dense mode, `?` shows all
+  shortcuts.
+- **Query cache** — re-running the exact same SQL + params within 2 minutes
+  hits the local cache (0 ms). A "Cache · Ns · Actualiser" chip lets you force
+  a fresh fetch; `Ctrl/Cmd + Shift + Enter` does the same from the keyboard.
+- **Skeleton rows** — while a query loads, the app shows shimmer rows shaped
+  like the previous result so the screen never looks empty.
+- **Mode démo** — click *"Essayer en démo"* on the empty state or connection
+  dialog to explore the app with 1 500 rows of realistic fake SAP sales data.
+  No SQL Server or VPN needed.
+
 ## Network / VPN
 
 The SQL Server at `192.168.1.240` lives on the internal network, so the app can

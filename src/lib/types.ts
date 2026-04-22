@@ -43,6 +43,8 @@ export type HistoryEntry = {
 
 export type VariableOption = { value: string | number; label?: string };
 
+export type FilterOperator = "eq" | "likeOrAll" | "gte" | "lte";
+
 export type Variable = {
   name: string;
   label: string;
@@ -51,6 +53,8 @@ export type Variable = {
   options?: string[];
   optionsQuery?: string;
   hint?: string;
+  filterColumn?: string;
+  filterOperator?: FilterOperator;
 };
 
 export type Template = {
@@ -72,6 +76,7 @@ export type Snapshot = {
   rows: Record<string, unknown>[];
   createdAt: number;
   createdBy?: string;
+  variables?: Variable[];
 };
 
 declare global {
@@ -153,6 +158,11 @@ declare global {
           params: Record<string, unknown>;
           columns: ColumnMeta[];
           rows: Record<string, unknown>[];
+          filters?: Array<{
+            paramName: string;
+            column: string;
+            operator: FilterOperator;
+          }>;
         }>;
         title?: string;
         exportedBy?: string;

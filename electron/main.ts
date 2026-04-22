@@ -50,6 +50,8 @@ type Template = {
     options?: string[];
     optionsQuery?: string;
     hint?: string;
+    filterColumn?: string;
+    filterOperator?: "eq" | "likeOrAll" | "gte" | "lte";
   }>;
   createdAt: number;
 };
@@ -192,6 +194,8 @@ ORDER BY s.Dte`,
           optionsQuery:
             "SELECT SlpCode AS value, SlpName AS label FROM OSLP WHERE SlpCode > 0 ORDER BY SlpName",
           hint: "Identifiant numérique du vendeur (SlpCode).",
+          filterColumn: "SlpCode",
+          filterOperator: "eq",
         },
         {
           name: "Entrepot",
@@ -201,6 +205,8 @@ ORDER BY s.Dte`,
           optionsQuery:
             "SELECT WhsCode AS value, COALESCE(WhsName, WhsCode) AS label FROM OWHS WHERE Inactive = 'N' ORDER BY WhsCode",
           hint: "Code d'entrepôt. Utilisez * pour tous. Les jokers % sont acceptés (ex: 01%).",
+          filterColumn: "WhsCode",
+          filterOperator: "likeOrAll",
         },
         {
           name: "StartDate",
@@ -209,12 +215,16 @@ ORDER BY s.Dte`,
           default: new Date(Date.now() - 30 * 86400000)
             .toISOString()
             .slice(0, 10),
+          filterColumn: "Dte",
+          filterOperator: "gte",
         },
         {
           name: "EndDate",
           label: "Date fin",
           type: "date",
           default: new Date().toISOString().slice(0, 10),
+          filterColumn: "Dte",
+          filterOperator: "lte",
         },
       ],
       createdAt: Date.now(),

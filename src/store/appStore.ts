@@ -479,6 +479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       columns,
       rows,
       createdAt: Date.now(),
+      variables,
     };
     const snapshots = await window.sap.saveSnapshot(snap);
     set({ snapshots, activeSnapshotId: snap.id });

@@ -86,6 +86,20 @@ export function ExcelExportDialog({
     setError(null);
     setSavedPath(null);
     const items: Parameters<typeof window.sap.exportExcel>[0]["items"] = [];
+    const filtersFor = (
+      vars?: Array<{
+        name: string;
+        filterColumn?: string;
+        filterOperator?: "eq" | "likeOrAll" | "gte" | "lte";
+      }>,
+    ) =>
+      (vars ?? [])
+        .filter((v) => v.filterColumn && v.filterOperator)
+        .map((v) => ({
+          paramName: v.name,
+          column: v.filterColumn!,
+          operator: v.filterOperator!,
+        }));
     if (liveAvailable && selected["live"]) {
       const params: Record<string, unknown> = {};
       for (const v of variables) {
@@ -98,6 +112,7 @@ export function ExcelExportDialog({
         params,
         columns,
         rows,
+        filters: filtersFor(variables),
       });
     }
     for (const snap of snapshots) {
@@ -109,6 +124,7 @@ export function ExcelExportDialog({
           params: snap.params,
           columns: snap.columns,
           rows: snap.rows,
+          filters: filtersFor(snap.variables),
         });
       }
     }

@@ -7,6 +7,12 @@ type ColumnMeta = {
   type: ColumnType;
 };
 
+export type ExcelFilterMapping = {
+  paramName: string;
+  column: string;
+  operator: "eq" | "likeOrAll" | "gte" | "lte";
+};
+
 export type ExcelExportItem = {
   name: string;
   description?: string;
@@ -14,6 +20,7 @@ export type ExcelExportItem = {
   params: Record<string, unknown>;
   columns: ColumnMeta[];
   rows: Record<string, unknown>[];
+  filters?: ExcelFilterMapping[];
 };
 
 export type ExcelExportRequest = {
@@ -293,7 +300,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
     const hintRow = titleRow + 1;
     const hint = home.getCell(`B${hintRow}`);
     hint.value =
-      "Informations sur la requête qui a produit les tables ci-dessous. Chaque paramètre est accessible depuis vos formules via un nom défini (p.ex. =Param_Entrepot). Pour filtrer / trier les données, utilisez les flèches des entêtes de colonnes — chaque feuille est une VRAIE table Excel : filtres, tris, total dynamique, références structurées (Table[Col]).";
+      "Modifiez les valeurs ci-dessous pour rafraîchir les feuilles « Vue … » qui se filtrent en direct (Excel 365 / 2021+). Les feuilles de données brutes restent figées au moment de l'export : utilisez-les avec les filtres des entêtes pour tri/filtrage libre. Chaque paramètre est aussi exposé comme nom défini (=Param_Entrepot, =Param_StartDate…) pour vos formules personnelles.";
     hint.font = { italic: true, size: 9.5, color: { argb: COLORS.mutedText } };
     hint.alignment = { wrapText: true, vertical: "top" };
     home.mergeCells(`B${hintRow}:F${hintRow}`);
@@ -767,6 +774,164 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       };
       sqlCell.alignment = { wrapText: true, vertical: "top" };
       ws.mergeCells(`A${noteRow}:${endColLetter}${noteRow}`);
+    }
+
+    // --- COMPANION "VUE" SHEET with live FILTER() formula ---
+    // If the template defines filterColumn/filterOperator per variable, we
+    // generate a second sheet that re-filters the Excel Table live based on
+    // the Accueil named cells. Change a date on Accueil → this view updates.
+    // Requires Excel 365 / 2021+ for FILTER(). Older versions show #NAME?.
+    if (
+      tableCreated &&
+      item.rows.length > 0 &&
+      item.filters &&
+      item.filters.length > 0
+    ) {
+      const colsByName = new Set(item.columns.map((c) => c.name));
+      const usableFilters = item.filters.filter(
+        (f) => colsByName.has(f.column) && allParams.has(f.paramName),
+      );
+      if (usableFilters.length > 0) {
+        const vueName = sanitizeSheetName(`Vue ${item.name}`.slice(0, 28), idx);
+        let safeVueName = vueName;
+        let n = 1;
+        while (usedNames.has(safeVueName)) {
+          const suffix = `_${++n}`;
+          safeVueName = vueName.slice(0, 31 - suffix.length) + suffix;
+        }
+        usedNames.add(safeVueName);
+
+        const vue = wb.addWorksheet(safeVueName, {
+          properties: { tabColor: { argb: COLORS.accentDark } },
+          views: [
+            { state: "frozen", ySplit: 4, showGridLines: false, zoomScale: 100 },
+          ],
+        });
+
+        // Banner rows 1-2
+        vue.mergeCells(`A1:${endColLetter}2`);
+        const vBanner = vue.getCell("A1");
+        vBanner.value = `Vue interactive — ${item.name}`;
+        vBanner.font = {
+          name: "Calibri",
+          size: 18,
+          bold: true,
+          color: { argb: COLORS.headerText },
+        };
+        vBanner.alignment = {
+          vertical: "middle",
+          horizontal: "left",
+          indent: 2,
+        };
+        vBanner.fill = {
+          type: "gradient",
+          gradient: "angle",
+          degree: 135,
+          stops: [
+            { position: 0, color: { argb: COLORS.accent } },
+            { position: 1, color: { argb: COLORS.accentDark } },
+          ],
+        };
+        vue.getRow(1).height = 22;
+        vue.getRow(2).height = 22;
+
+        // Hint row 3
+        vue.mergeCells(`A3:${endColLetter}3`);
+        const vHint = vue.getCell("A3");
+        vHint.value =
+          "Modifiez les valeurs sur la feuille « Accueil » — cette vue se rafraîchit toute seule. (Excel 365 / 2021+)";
+        vHint.font = {
+          italic: true,
+          size: 10,
+          color: { argb: COLORS.mutedText },
+        };
+        vHint.alignment = {
+          vertical: "middle",
+          horizontal: "left",
+          indent: 2,
+        };
+        vue.getRow(3).height = 22;
+
+        // Header row 4
+        const vHead = vue.getRow(4);
+        vHead.height = 26;
+        item.columns.forEach((col, i) => {
+          const cell = vHead.getCell(i + 1);
+          cell.value = col.name;
+          cell.font = {
+            bold: true,
+            color: { argb: COLORS.headerText },
+            size: 11,
+          };
+          cell.fill = {
+            type: "gradient",
+            gradient: "angle",
+            degree: 90,
+            stops: [
+              { position: 0, color: { argb: COLORS.accent } },
+              { position: 1, color: { argb: COLORS.accentDark } },
+            ],
+          };
+          cell.alignment = {
+            vertical: "middle",
+            horizontal: col.type === "number" ? "right" : "left",
+            indent: 1,
+          };
+        });
+
+        // Build FILTER formula from mappings
+        const conds: string[] = [];
+        for (const f of usableFilters) {
+          const pName = `Param_${f.paramName.replace(/[^A-Za-z0-9_]/g, "_")}`;
+          const colRef = `${tableName}[${f.column}]`;
+          switch (f.operator) {
+            case "eq":
+              conds.push(`(${colRef}=${pName})`);
+              break;
+            case "likeOrAll":
+              conds.push(`((${pName}="*")+(${colRef}=${pName}))`);
+              break;
+            case "gte":
+              conds.push(`(${colRef}>=${pName})`);
+              break;
+            case "lte":
+              conds.push(`(${colRef}<=${pName})`);
+              break;
+          }
+        }
+        const filterExpr = conds.join("*");
+        const formula = `IFERROR(FILTER(${tableName},${filterExpr}),"Aucun résultat pour ces filtres")`;
+        vue.getCell("A5").value = {
+          formula,
+          result: "",
+        } as ExcelJS.CellFormulaValue;
+
+        // Apply per-column number format + alignment so spilled values render well
+        item.columns.forEach((col, i) => {
+          const column = vue.getColumn(i + 1);
+          column.numFmt = formats[i];
+          column.alignment = {
+            vertical: "middle",
+            horizontal: col.type === "number" ? "right" : "left",
+            indent: 1,
+          };
+          let maxLen = col.name.length + 3;
+          const sample = samples[i] ?? [];
+          for (const v of sample.slice(0, 100)) {
+            if (v == null) continue;
+            const s =
+              v instanceof Date
+                ? v.toISOString().slice(0, 16)
+                : typeof v === "number"
+                  ? String(Math.round(v))
+                  : String(v);
+            if (s.length > maxLen) maxLen = s.length;
+          }
+          column.width = Math.min(48, Math.max(14, maxLen + 2));
+        });
+
+        // Add Vue to Home TOC (one more row below the data TOC entry)
+      }
     }
   });
 

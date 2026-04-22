@@ -8,6 +8,7 @@ import type {
 } from "../lib/types";
 import { mergeVariables } from "../lib/template";
 import { runDemoQuery } from "../lib/demo";
+import { rememberValue } from "../lib/valueHistory";
 
 type View = "results" | "chart";
 
@@ -257,6 +258,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         columns: result.columns,
         at: Date.now(),
       });
+      for (const v of variables) {
+        const val = values[v.name];
+        if (val != null && String(val).trim() !== "")
+          rememberValue(v.name, String(val));
+      }
       set({
         rows: result.rows,
         columns: result.columns,

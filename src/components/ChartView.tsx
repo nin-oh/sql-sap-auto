@@ -15,6 +15,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  LabelList,
 } from "recharts";
 import {
   BarChart3,
@@ -26,6 +27,7 @@ import { useAppStore } from "../store/appStore";
 import { cn } from "../lib/cn";
 
 type ChartType = "bar" | "line" | "area" | "pie";
+type Agg = "sum" | "avg" | "count" | "min" | "max";
 
 const PALETTE = [
   "#7c5cff",
@@ -39,14 +41,49 @@ const PALETTE = [
 ];
 
 const TOOLTIP_STYLE: React.CSSProperties = {
-  background: "rgba(20, 24, 36, 0.92)",
-  border: "1px solid rgba(124,92,255,0.25)",
+  background: "rgba(20, 24, 36, 0.96)",
+  border: "1px solid rgba(124,92,255,0.3)",
   borderRadius: 10,
   color: "#e5e7eb",
   boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
   fontSize: 12,
   padding: "8px 10px",
 };
+
+const AGG_LABEL: Record<Agg, string> = {
+  sum: "Somme",
+  avg: "Moyenne",
+  count: "Compte",
+  min: "Minimum",
+  max: "Maximum",
+};
+
+function fmt(n: number): string {
+  if (!Number.isFinite(n)) return "-";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (abs >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return Number.isInteger(n) ? n.toLocaleString("fr-FR") : n.toFixed(2);
+}
+
+function aggregateValue(
+  values: number[],
+  agg: Agg,
+): number {
+  if (values.length === 0) return 0;
+  switch (agg) {
+    case "count":
+      return values.length;
+    case "avg":
+      return values.reduce((a, b) => a + b, 0) / values.length;
+    case "min":
+      return Math.min(...values);
+    case "max":
+      return Math.max(...values);
+    default:
+      return values.reduce((a, b) => a + b, 0);
+  }
+}
 
 export function ChartView() {
   const rows = useAppStore((s) => s.rows);
@@ -56,36 +93,63 @@ export function ChartView() {
     () => columns.filter((c) => c.type === "number").map((c) => c.name),
     [columns],
   );
-  const categoricalCols = useMemo(
+  const nonNumericCols = useMemo(
     () => columns.filter((c) => c.type !== "number").map((c) => c.name),
     [columns],
   );
 
-  const [type, setType] = useState<ChartType>("area");
+  const [type, setType] = useState<ChartType>("bar");
   const [xKey, setXKey] = useState<string>(
-    categoricalCols[0] ?? columns[0]?.name ?? "",
+    nonNumericCols[0] ?? columns[0]?.name ?? "",
   );
   const [yKey, setYKey] = useState<string>(numericCols[0] ?? "");
+  const [agg, setAgg] = useState<Agg>("sum");
+  const [topN, setTopN] = useState<number>(15);
 
-  const data = useMemo(() => {
-    if (!xKey || !yKey) return [];
-    if (type === "pie") {
-      const agg = new Map<string, number>();
-      for (const r of rows) {
-        const k = String(r[xKey] ?? "—");
-        const v = Number(r[yKey] ?? 0);
-        agg.set(k, (agg.get(k) ?? 0) + (Number.isFinite(v) ? v : 0));
-      }
-      return Array.from(agg.entries())
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 12);
+  const { data, otherValue, truncated } = useMemo(() => {
+    if (!xKey || !yKey) return { data: [], otherValue: 0, truncated: false };
+    const buckets = new Map<string, number[]>();
+    for (const r of rows) {
+      const k =
+        r[xKey] instanceof Date
+          ? (r[xKey] as Date).toISOString().slice(0, 10)
+          : r[xKey] == null
+            ? "—"
+            : String(r[xKey]);
+      const v = Number(r[yKey]);
+      if (!Number.isFinite(v) && agg !== "count") continue;
+      const arr = buckets.get(k) ?? [];
+      arr.push(agg === "count" ? 1 : v);
+      buckets.set(k, arr);
     }
-    return rows.slice(0, 500).map((r) => ({
-      [xKey]: r[xKey],
-      [yKey]: Number(r[yKey] ?? 0),
+    const sortedKeys = Array.from(buckets.keys()).sort((a, b) => {
+      const va = aggregateValue(buckets.get(a)!, agg);
+      const vb = aggregateValue(buckets.get(b)!, agg);
+      return vb - va;
+    });
+    let kept = sortedKeys;
+    let other = 0;
+    let wasTruncated = false;
+    if (type !== "line" && type !== "area" && sortedKeys.length > topN) {
+      kept = sortedKeys.slice(0, topN);
+      const rest = sortedKeys.slice(topN);
+      const allRest = rest.flatMap((k) => buckets.get(k)!);
+      other = aggregateValue(allRest, agg);
+      wasTruncated = true;
+    }
+    const aggregated = kept.map((k) => ({
+      x: k,
+      y: aggregateValue(buckets.get(k)!, agg),
     }));
-  }, [rows, xKey, yKey, type]);
+    if (type === "line" || type === "area") {
+      aggregated.sort((a, b) => a.x.localeCompare(b.x));
+    }
+    return {
+      data: aggregated.map((p) => ({ [xKey]: p.x, [yKey]: p.y })),
+      otherValue: other,
+      truncated: wasTruncated,
+    };
+  }, [rows, xKey, yKey, agg, type, topN]);
 
   if (rows.length === 0) {
     return (
@@ -98,15 +162,29 @@ export function ChartView() {
     );
   }
 
-  if (numericCols.length === 0) {
+  if (numericCols.length === 0 && agg !== "count") {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted">
         <p className="text-sm">
-          Aucune colonne numérique détectée pour tracer un graphique.
+          Aucune colonne numérique détectée. Basculez l'agrégation sur
+          "Compte" pour obtenir un graphique de distribution.
         </p>
       </div>
     );
   }
+
+  const pieData =
+    type === "pie"
+      ? [
+          ...data.map((d) => ({
+            name: String(d[xKey]),
+            value: Number(d[yKey]),
+          })),
+          ...(otherValue > 0
+            ? [{ name: "Autres", value: otherValue }]
+            : []),
+        ]
+      : [];
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -114,9 +192,9 @@ export function ChartView() {
         <div className="flex items-center gap-1 bg-bg-soft border border-border rounded-lg p-1">
           {(
             [
-              { t: "area", icon: AreaIcon, label: "Aire" },
               { t: "bar", icon: BarChart3, label: "Barres" },
               { t: "line", icon: LineIcon, label: "Lignes" },
+              { t: "area", icon: AreaIcon, label: "Aire" },
               { t: "pie", icon: PieIcon, label: "Camembert" },
             ] as const
           ).map(({ t, icon: Icon, label }) => (
@@ -136,39 +214,44 @@ export function ChartView() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wider text-muted">
-            Axe X
-          </span>
-          <select
-            value={xKey}
-            onChange={(e) => setXKey(e.target.value)}
-            className="bg-bg-soft border border-border rounded-md text-xs px-2 py-1.5 text-slate-200 hover:border-border-soft transition"
-          >
-            {columns.map((c) => (
-              <option key={c.name} value={c.name}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          label="Axe X"
+          value={xKey}
+          onChange={setXKey}
+          options={columns.map((c) => c.name)}
+        />
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wider text-muted">
-            Valeur
-          </span>
-          <select
-            value={yKey}
-            onChange={(e) => setYKey(e.target.value)}
-            className="bg-bg-soft border border-border rounded-md text-xs px-2 py-1.5 text-slate-200 hover:border-border-soft transition"
-          >
-            {numericCols.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
+        {(numericCols.length > 0 || agg === "count") && (
+          <Select
+            label="Valeur"
+            value={yKey || numericCols[0] || columns[0]?.name || ""}
+            onChange={setYKey}
+            options={
+              agg === "count"
+                ? columns.map((c) => c.name)
+                : numericCols.length > 0
+                  ? numericCols
+                  : columns.map((c) => c.name)
+            }
+          />
+        )}
+
+        <Select
+          label="Agrégation"
+          value={agg}
+          onChange={(v) => setAgg(v as Agg)}
+          options={["sum", "avg", "count", "min", "max"]}
+          format={(v) => AGG_LABEL[v as Agg]}
+        />
+
+        {type !== "line" && type !== "area" && (
+          <Select
+            label="Top"
+            value={String(topN)}
+            onChange={(v) => setTopN(Number(v))}
+            options={["5", "10", "15", "25", "50", "100"]}
+          />
+        )}
       </div>
 
       <div className="flex-1 min-h-0 rounded-xl border border-border bg-bg-soft/40 p-3 relative overflow-hidden">
@@ -178,7 +261,7 @@ export function ChartView() {
           {type === "area" ? (
             <AreaChart
               data={data}
-              margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
+              margin={{ top: 24, right: 24, bottom: 12, left: 12 }}
             >
               <defs>
                 <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
@@ -187,13 +270,26 @@ export function ChartView() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2637" />
-              <XAxis dataKey={xKey} stroke="#8a92a6" fontSize={11} />
-              <YAxis stroke="#8a92a6" fontSize={11} />
+              <XAxis
+                dataKey={xKey}
+                stroke="#8a92a6"
+                fontSize={11}
+                tickFormatter={truncLabel}
+              />
+              <YAxis
+                stroke="#8a92a6"
+                fontSize={11}
+                tickFormatter={fmt}
+              />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
+                formatter={(v: number) => fmt(v)}
                 cursor={{ stroke: "#7c5cff", strokeOpacity: 0.3 }}
               />
-              <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
+              <Legend
+                wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }}
+                formatter={() => `${AGG_LABEL[agg]} · ${yKey}`}
+              />
               <Area
                 type="monotone"
                 dataKey={yKey}
@@ -211,42 +307,82 @@ export function ChartView() {
           ) : type === "bar" ? (
             <BarChart
               data={data}
-              margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
+              margin={{ top: 24, right: 24, bottom: 12, left: 12 }}
             >
               <defs>
                 <linearGradient id="gradBar" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#9a82ff" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#6b4ff0" stopOpacity={0.7} />
+                  <stop offset="100%" stopColor="#6b4ff0" stopOpacity={0.8} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2637" />
-              <XAxis dataKey={xKey} stroke="#8a92a6" fontSize={11} />
-              <YAxis stroke="#8a92a6" fontSize={11} />
+              <XAxis
+                dataKey={xKey}
+                stroke="#8a92a6"
+                fontSize={11}
+                interval={0}
+                tickFormatter={truncLabel}
+                angle={data.length > 8 ? -25 : 0}
+                textAnchor={data.length > 8 ? "end" : "middle"}
+                height={data.length > 8 ? 60 : 30}
+              />
+              <YAxis
+                stroke="#8a92a6"
+                fontSize={11}
+                tickFormatter={fmt}
+              />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
+                formatter={(v: number) => fmt(v)}
                 cursor={{ fill: "rgba(124,92,255,0.08)" }}
               />
-              <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
+              <Legend
+                wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }}
+                formatter={() => `${AGG_LABEL[agg]} · ${yKey}`}
+              />
               <Bar
                 dataKey={yKey}
                 fill="url(#gradBar)"
                 radius={[8, 8, 0, 0]}
-                animationDuration={600}
-              />
+                animationDuration={500}
+              >
+                {data.length <= 20 && (
+                  <LabelList
+                    dataKey={yKey}
+                    position="top"
+                    fill="#cbd5e1"
+                    fontSize={10}
+                    formatter={fmt}
+                  />
+                )}
+              </Bar>
             </BarChart>
           ) : type === "line" ? (
             <LineChart
               data={data}
-              margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
+              margin={{ top: 24, right: 24, bottom: 12, left: 12 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2637" />
-              <XAxis dataKey={xKey} stroke="#8a92a6" fontSize={11} />
-              <YAxis stroke="#8a92a6" fontSize={11} />
+              <XAxis
+                dataKey={xKey}
+                stroke="#8a92a6"
+                fontSize={11}
+                tickFormatter={truncLabel}
+              />
+              <YAxis
+                stroke="#8a92a6"
+                fontSize={11}
+                tickFormatter={fmt}
+              />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
+                formatter={(v: number) => fmt(v)}
                 cursor={{ stroke: "#7c5cff", strokeOpacity: 0.3 }}
               />
-              <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
+              <Legend
+                wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }}
+                formatter={() => `${AGG_LABEL[agg]} · ${yKey}`}
+              />
               <Line
                 type="monotone"
                 dataKey={yKey}
@@ -278,19 +414,22 @@ export function ChartView() {
                   </linearGradient>
                 ))}
               </defs>
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <Tooltip
+                contentStyle={TOOLTIP_STYLE}
+                formatter={(v: number) => fmt(v)}
+              />
               <Legend wrapperStyle={{ color: "#cbd5e1", fontSize: 12 }} />
               <Pie
-                data={data}
+                data={pieData}
                 dataKey="value"
                 nameKey="name"
                 innerRadius={75}
                 outerRadius={135}
                 paddingAngle={3}
                 cornerRadius={6}
-                label
+                label={(entry) => truncLabel(String(entry.name))}
               >
-                {data.map((_, i) => (
+                {pieData.map((_, i) => (
                   <Cell
                     key={i}
                     fill={`url(#gradPie${i % PALETTE.length})`}
@@ -303,6 +442,51 @@ export function ChartView() {
           )}
         </ResponsiveContainer>
       </div>
+
+      {truncated && (
+        <div className="mt-2 text-[11px] text-muted">
+          Affichage des {topN} premières catégories.{" "}
+          {otherValue > 0 && `Les autres sont regroupées (${fmt(otherValue)}).`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function truncLabel(v: string): string {
+  const s = String(v);
+  return s.length > 12 ? s.slice(0, 12) + "…" : s;
+}
+
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+  format,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  format?: (v: string) => string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] uppercase tracking-wider text-muted">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-bg-soft border border-border rounded-md text-xs px-2 py-1.5 text-slate-200 hover:border-border-soft transition"
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {format ? format(o) : o}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

@@ -76,6 +76,27 @@ function coerceCellValue(
   return value as string | number | boolean | Date;
 }
 
+function shouldAggregate(name: string, samples: unknown[]): boolean {
+  const n = name.toLowerCase();
+  if (/^(doc|item|card|slp|bp|u_|ocr|owhs|oitm|ref)/.test(n)) return false;
+  if (/(code|num|id|no|number|key|idx|ref|year|month|day|week|doc)$/i.test(n))
+    return false;
+  if (/^(id|code|num|no|ref|key|idx|year|month|day)$/i.test(n)) return false;
+  // If all numeric values are unique integers and large, it's likely an ID
+  let uniq = new Set<number>();
+  let allInt = true;
+  let count = 0;
+  for (const v of samples) {
+    if (typeof v !== "number") continue;
+    count++;
+    if (!Number.isInteger(v)) allInt = false;
+    uniq.add(v);
+    if (count > 120) break;
+  }
+  if (count >= 20 && allInt && uniq.size / count > 0.92) return false;
+  return true;
+}
+
 function numFmtFor(type: ColumnType, sampleValues: unknown[]): string {
   if (type === "date") {
     const hasTime = sampleValues.some((v) => {
@@ -364,7 +385,6 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       views: [
         {
           state: "frozen",
-          xSplit: 1,
           ySplit: 4,
           showGridLines: false,
           zoomScale: 100,
@@ -409,8 +429,12 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
     }
 
     const numericIdxs: number[] = [];
+    const aggregatableIdxs: number[] = [];
     item.columns.forEach((c, i) => {
-      if (c.type === "number") numericIdxs.push(i);
+      if (c.type === "number") {
+        numericIdxs.push(i);
+        if (shouldAggregate(c.name, samples[i])) aggregatableIdxs.push(i);
+      }
     });
 
     const kpiBlocks: Array<{
@@ -430,8 +454,8 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       },
     ];
 
-    if (numericIdxs.length > 0) {
-      const firstNumIdx = numericIdxs[0];
+    if (aggregatableIdxs.length > 0) {
+      const firstNumIdx = aggregatableIdxs[0];
       const firstNumCol = item.columns[firstNumIdx];
       let sum = 0;
       for (const r of item.rows) {
@@ -465,15 +489,22 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       amber: "FFB45309",
     };
 
-    const kpiWidth = Math.max(2, Math.floor(colCount / kpiBlocks.length));
+    // Clamp number of KPI blocks to the number of columns (avoid merging past
+    // the end of the sheet, which makes Excel reject cell-merge afterwards).
+    const usableBlocks = kpiBlocks.slice(0, Math.max(1, colCount));
+    const baseWidth = Math.max(1, Math.floor(colCount / usableBlocks.length));
+    const remainder = colCount - baseWidth * usableBlocks.length;
     ws.getRow(3).height = 44;
     let currentCol = 1;
-    kpiBlocks.forEach((kpi, i) => {
-      const isLast = i === kpiBlocks.length - 1;
-      const endCol = isLast ? colCount : currentCol + kpiWidth - 1;
+    usableBlocks.forEach((kpi, i) => {
+      const extra = i < remainder ? 1 : 0;
+      const width = baseWidth + extra;
+      const endCol = Math.min(colCount, currentCol + width - 1);
       const startLetter = columnLetter(currentCol);
       const endLetter = columnLetter(endCol);
-      ws.mergeCells(`${startLetter}3:${endLetter}3`);
+      if (endCol > currentCol) {
+        ws.mergeCells(`${startLetter}3:${endLetter}3`);
+      }
       const cell = ws.getCell(`${startLetter}3`);
       const formatted =
         typeof kpi.value === "number"
@@ -505,6 +536,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
         left: { style: "thick", color: { argb: kpiToneDark[kpi.tone] } },
       };
       currentCol = endCol + 1;
+      if (currentCol > colCount) return;
     });
 
     // --- HEADER ROW (row 4) ---
@@ -586,6 +618,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
     const totalsRowIdx = dataEnd + 1;
     const totalsRow = ws.getRow(totalsRowIdx);
     totalsRow.height = 24;
+    const aggSet = new Set(aggregatableIdxs);
     item.columns.forEach((col, ci) => {
       const cell = totalsRow.getCell(ci + 1);
       if (ci === 0) {
@@ -595,7 +628,7 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
           color: { argb: COLORS.headerText },
           size: 10.5,
         };
-      } else if (col.type === "number" && item.rows.length > 0) {
+      } else if (aggSet.has(ci) && item.rows.length > 0) {
         const colLetter = columnLetter(ci + 1);
         cell.value = {
           formula: `SUM(${colLetter}${dataStart}:${colLetter}${dataEnd})`,
@@ -624,9 +657,9 @@ export async function exportExcel(req: ExcelExportRequest): Promise<void> {
       };
     });
 
-    // --- DATA BARS on numeric columns ---
+    // --- DATA BARS on aggregatable numeric columns only ---
     if (dataEnd >= dataStart) {
-      for (const nIdx of numericIdxs) {
+      for (const nIdx of aggregatableIdxs) {
         const colL = columnLetter(nIdx + 1);
         const range = `${colL}${dataStart}:${colL}${dataEnd}`;
         try {

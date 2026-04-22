@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useAppStore } from "../store/appStore";
 import { Input } from "./ui/Input";
 import {
@@ -6,7 +7,9 @@ import {
   Hash,
   Calendar,
   Type as TypeIcon,
+  History,
 } from "lucide-react";
+import { getHistory } from "../lib/valueHistory";
 
 const typeIcons = {
   number: Hash,
@@ -19,6 +22,22 @@ export function VariablePanel() {
   const variables = useAppStore((s) => s.variables);
   const values = useAppStore((s) => s.values);
   const setValue = useAppStore((s) => s.setValue);
+  const history = useAppStore((s) => s.history);
+
+  // Values seen in past runs (template params) merged with local history.
+  const fromRuns = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const entry of history) {
+      for (const [k, v] of Object.entries(entry.params ?? {})) {
+        if (v == null) continue;
+        const s = String(v).trim();
+        if (!s) continue;
+        if (!map.has(k)) map.set(k, new Set());
+        map.get(k)!.add(s);
+      }
+    }
+    return map;
+  }, [history]);
 
   if (variables.length === 0) {
     return (
@@ -37,6 +56,17 @@ export function VariablePanel() {
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
       {variables.map((v) => {
         const Icon = typeIcons[v.type] ?? TypeIcon;
+        const listId = `vhist-${v.name}`;
+        const localHistory = getHistory(v.name);
+        const fromHistory = fromRuns.get(v.name) ?? new Set<string>();
+        const suggestions = Array.from(
+          new Set([
+            ...localHistory,
+            ...fromHistory,
+            ...(v.default != null ? [String(v.default)] : []),
+          ]),
+        ).slice(0, 8);
+
         return (
           <label key={v.name} className="block group">
             <div className="flex items-center gap-1.5 mb-1.5">
@@ -58,19 +88,49 @@ export function VariablePanel() {
                 </span>
               )}
             </div>
-            <Input
-              type={
-                v.type === "date"
-                  ? "date"
-                  : v.type === "number"
-                    ? "number"
-                    : "text"
-              }
-              value={values[v.name] ?? ""}
-              placeholder={v.default != null ? String(v.default) : ""}
-              onChange={(e) => setValue(v.name, e.target.value)}
-              className="group-hover:border-accent/30 focus:border-accent/50 transition"
-            />
+            <div className="relative">
+              <Input
+                list={listId}
+                type={
+                  v.type === "date"
+                    ? "date"
+                    : v.type === "number"
+                      ? "number"
+                      : "text"
+                }
+                value={values[v.name] ?? ""}
+                placeholder={v.default != null ? String(v.default) : ""}
+                onChange={(e) => setValue(v.name, e.target.value)}
+                className="group-hover:border-accent/30 focus:border-accent/50 transition"
+              />
+              {suggestions.length > 0 && (
+                <datalist id={listId}>
+                  {suggestions.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+            {suggestions.length > 0 && v.type !== "date" && (
+              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                <History className="size-2.5 text-muted" />
+                {suggestions.slice(0, 5).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setValue(v.name, s)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition truncate max-w-[90px] ${
+                      (values[v.name] ?? "") === s
+                        ? "bg-accent/20 text-accent-glow border-accent/40"
+                        : "bg-white/[0.03] text-slate-300 border-border hover:border-accent/30 hover:text-accent-glow"
+                    }`}
+                    title={s}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </label>
         );
       })}

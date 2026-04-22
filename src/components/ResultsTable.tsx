@@ -1,22 +1,21 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  ChevronLeft,
-  ChevronRight,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Download,
   Search,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
@@ -41,6 +40,8 @@ function formatCell(value: unknown, type: ColumnMeta["type"]): string {
   return String(value);
 }
 
+const LARGE_RESULT_WARN = 50_000;
+
 export function ResultsTable() {
   const rows = useAppStore((s) => s.rows);
   const columns = useAppStore((s) => s.columns);
@@ -61,7 +62,8 @@ export function ResultsTable() {
             <span
               className={cn(
                 "block",
-                c.type === "number" && "tabular-nums text-right font-mono text-[12px]",
+                c.type === "number" &&
+                  "tabular-nums text-right font-mono text-[12px]",
                 raw == null && "text-muted italic",
               )}
               title={v}
@@ -92,9 +94,24 @@ export function ResultsTable() {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 100 } },
   });
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const allRows = table.getRowModel().rows;
+
+  const rowHeight = dense ? 28 : 34;
+  const virtualizer = useVirtualizer({
+    count: allRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 12,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+  const paddingTop = virtualItems.length ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length
+    ? totalSize - virtualItems[virtualItems.length - 1].end
+    : 0;
 
   const exportCsv = async () => {
     await window.sap.exportCsv(
@@ -117,13 +134,7 @@ export function ResultsTable() {
     );
   }
 
-  const pageRows = table.getRowModel().rows;
-  const startIndex =
-    table.getState().pagination.pageIndex *
-      table.getState().pagination.pageSize +
-    1;
-
-  const cellPaddingY = dense ? "py-1" : "py-2";
+  const cellPaddingY = dense ? "py-1" : "py-1.5";
   const cellTextSize = dense ? "text-[11.5px]" : "text-[12.5px]";
 
   return (
@@ -151,15 +162,38 @@ export function ResultsTable() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-border bg-bg-soft/60 relative">
-        <table className={cn("min-w-full border-separate border-spacing-0", cellTextSize)}>
+      {rows.length > LARGE_RESULT_WARN && (
+        <div className="mb-2 flex items-center gap-2 p-2.5 rounded-lg bg-warn/5 border border-warn/20 text-[11.5px] text-slate-200">
+          <AlertTriangle className="size-4 text-warn flex-shrink-0" />
+          <span>
+            Grand volume :{" "}
+            <span className="font-semibold text-warn">
+              {rows.length.toLocaleString()}
+            </span>{" "}
+            lignes. L'affichage reste fluide grâce à la virtualisation, mais
+            ajoutez <code className="bg-white/5 px-1 rounded">TOP N</code> ou
+            filtrez par date pour des résultats plus rapides.
+          </span>
+        </div>
+      )}
+
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-auto rounded-xl border border-border bg-bg-soft/60 relative"
+      >
+        <table
+          className={cn(
+            "min-w-full border-separate border-spacing-0",
+            cellTextSize,
+          )}
+        >
           <thead className="sticky top-0 z-20">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id}>
                 <th
                   className={cn(
                     "sticky left-0 z-30 w-12 text-center font-semibold text-muted bg-bg-panel/95 backdrop-blur-md border-b border-r border-border px-2",
-                    dense ? "py-1.5" : "py-2.5",
+                    dense ? "py-1.5" : "py-2",
                   )}
                 >
                   #
@@ -172,7 +206,7 @@ export function ResultsTable() {
                       onClick={h.column.getToggleSortingHandler()}
                       className={cn(
                         "text-left font-semibold text-slate-200 bg-bg-panel/95 backdrop-blur-md border-b border-border cursor-pointer select-none hover:bg-accent/5 transition",
-                        dense ? "px-2.5 py-1.5" : "px-3 py-2.5",
+                        dense ? "px-2.5 py-1.5" : "px-3 py-2",
                       )}
                     >
                       <div className="flex items-center gap-1.5">
@@ -197,22 +231,34 @@ export function ResultsTable() {
             ))}
           </thead>
           <tbody>
-            {pageRows.map((row, i) => {
-              const abs = startIndex + i;
-              const zebra = i % 2 === 1;
+            {paddingTop > 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  style={{ height: paddingTop }}
+                />
+              </tr>
+            )}
+            {virtualItems.map((vi) => {
+              const row = allRows[vi.index];
+              if (!row) return null;
+              const zebra = vi.index % 2 === 1;
+              const abs = vi.index + 1;
               return (
                 <tr
                   key={row.id}
+                  data-index={vi.index}
                   className={cn(
                     "group transition",
                     zebra && "bg-white/[0.012]",
                     "hover:bg-accent/[0.08]",
                   )}
+                  style={{ height: rowHeight }}
                 >
                   <td
                     className={cn(
                       "sticky left-0 z-10 w-12 text-center text-[10.5px] font-mono tabular-nums text-muted border-b border-r border-border/60 bg-bg-panel/80 backdrop-blur group-hover:bg-accent/10 group-hover:text-accent-glow transition",
-                      dense ? "py-1 px-2" : "py-2 px-2",
+                      "px-2",
                     )}
                   >
                     {abs}
@@ -235,44 +281,25 @@ export function ResultsTable() {
                 </tr>
               );
             })}
+            {paddingBottom > 0 && (
+              <tr>
+                <td
+                  colSpan={columns.length + 1}
+                  style={{ height: paddingBottom }}
+                />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      <div className="flex items-center justify-between pt-3">
-        <span className="text-xs text-muted">
-          Page {table.getState().pagination.pageIndex + 1} /{" "}
-          {table.getPageCount() || 1}
+      <div className="flex items-center justify-between pt-3 text-[11px] text-muted">
+        <span>
+          Affichage virtualisé ·{" "}
+          {table.getFilteredRowModel().rows.length.toLocaleString()} lignes
+          chargées
         </span>
-        <div className="flex items-center gap-2">
-          <select
-            className="bg-bg-soft border border-border rounded-md text-xs px-2 py-1.5 text-slate-200"
-            value={table.getState().pagination.pageSize}
-            onChange={(e) => table.setPageSize(Number(e.target.value))}
-          >
-            {[25, 50, 100, 250, 500, 1000].map((n) => (
-              <option key={n} value={n}>
-                {n} / page
-              </option>
-            ))}
-          </select>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeft className="size-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            <ChevronRight className="size-3.5" />
-          </Button>
-        </div>
+        <span>Cliquez sur un entête pour trier · défilement pour parcourir</span>
       </div>
     </div>
   );

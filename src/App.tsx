@@ -13,6 +13,9 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
+  Maximize2,
+  Minimize2,
+  Rows3,
   X,
 } from "lucide-react";
 import { Button } from "./components/ui/Button";
@@ -52,6 +55,10 @@ export default function App() {
   const importWorkspace = useAppStore((s) => s.importWorkspace);
   const importMessage = useAppStore((s) => s.importMessage);
   const clearImportMessage = useAppStore((s) => s.clearImportMessage);
+  const maximizedResults = useAppStore((s) => s.maximizedResults);
+  const toggleMaximizedResults = useAppStore((s) => s.toggleMaximizedResults);
+  const denseTable = useAppStore((s) => s.denseTable);
+  const toggleDenseTable = useAppStore((s) => s.toggleDenseTable);
 
   const [connOpen, setConnOpen] = useState(false);
   const [hasConnection, setHasConnection] = useState<boolean | null>(null);
@@ -128,7 +135,8 @@ export default function App() {
           </div>
         </aside>
 
-        <main className="p-4 min-h-0 overflow-hidden flex flex-col gap-4">
+        <main className="p-4 min-h-0 overflow-hidden flex flex-col gap-3">
+          {!maximizedResults && (
           <Card className="relative overflow-hidden">
             {running && <div className="scanbar" />}
             <CardHeader>
@@ -161,16 +169,17 @@ export default function App() {
               </div>
             </CardHeader>
             <CardBody className="p-0">
-              <div className="h-[220px]">
+              <div className="h-[170px]">
                 <QueryEditor />
               </div>
-              <div className="px-5 py-4 border-t border-white/5">
+              <div className="px-5 py-3 border-t border-white/5">
                 <VariablePanel />
               </div>
             </CardBody>
           </Card>
+          )}
 
-          {rows.length > 0 && !error && <KpiStrip />}
+          {!maximizedResults && rows.length > 0 && !error && <KpiStrip />}
 
           <Card className="flex-1 min-h-0 flex flex-col glass-lift">
             <CardHeader>
@@ -220,6 +229,40 @@ export default function App() {
                   >
                     <Camera className="size-3.5" />
                     Capturer
+                  </Button>
+                )}
+                {rows.length > 0 && view === "results" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleDenseTable}
+                    title={denseTable ? "Mode confortable" : "Mode dense"}
+                  >
+                    <Rows3 className="size-3.5" />
+                  </Button>
+                )}
+                {rows.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={toggleMaximizedResults}
+                    title={
+                      maximizedResults
+                        ? "Réduire (afficher l'éditeur)"
+                        : "Plein écran"
+                    }
+                  >
+                    {maximizedResults ? (
+                      <>
+                        <Minimize2 className="size-3.5" />
+                        Réduire
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 className="size-3.5" />
+                        Plein écran
+                      </>
+                    )}
                   </Button>
                 )}
               </div>

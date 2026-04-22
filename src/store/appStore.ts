@@ -28,11 +28,15 @@ type AppState = {
   snapshots: Snapshot[];
   activeSnapshotId: string | null;
   importMessage: string | null;
+  maximizedResults: boolean;
+  denseTable: boolean;
 
   setSql: (sql: string) => void;
   setValue: (name: string, value: string) => void;
   setView: (view: View) => void;
   clearImportMessage: () => void;
+  toggleMaximizedResults: () => void;
+  toggleDenseTable: () => void;
 
   initialize: () => Promise<void>;
   loadTemplate: (id: string) => void;
@@ -69,6 +73,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   snapshots: [],
   activeSnapshotId: null,
   importMessage: null,
+  maximizedResults: false,
+  denseTable: false,
 
   setSql: (sql) => {
     const variables = mergeVariables(sql, get().variables);
@@ -86,6 +92,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setView: (view) => set({ view }),
 
   clearImportMessage: () => set({ importMessage: null }),
+
+  toggleMaximizedResults: () =>
+    set((s) => ({ maximizedResults: !s.maximizedResults })),
+
+  toggleDenseTable: () => set((s) => ({ denseTable: !s.denseTable })),
 
   initialize: async () => {
     const [templates, history, snapshots] = await Promise.all([
